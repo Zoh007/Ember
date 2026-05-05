@@ -40,8 +40,11 @@ morning briefing or open the local data folder.
 
 ## Download a packaged build
 
+### Internal builds
+
 Every push to `main` can build downloadable desktop archives through GitHub
-Actions:
+Actions. These are useful for development testing, but people need repository
+access to download them:
 
 1. Open the repository's **Actions** tab.
 2. Select **Build desktop app**.
@@ -63,6 +66,24 @@ npm run package
 Packaged apps are written to `release/`.
 The CI workflow creates unpacked app artifacts, which can be downloaded and run
 directly from the extracted artifact folder.
+
+### Public releases
+
+For people outside the repository, publish a versioned GitHub Release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The **Release desktop downloads** workflow builds macOS, Windows, and Linux packages
+and attaches them to the release. If the repository is public, anyone can
+download those files from the Releases page.
+
+If the repository stays private, GitHub release assets are private too. In that
+case, upload the release files to a public distribution host such as a marketing
+site, S3/R2 bucket, or a tool such as Gumroad/Lemon Squeezy, then link to those
+files from your landing page.
 
 ## Python CLI
 
