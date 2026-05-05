@@ -1,0 +1,218 @@
+const { app, Tray, Menu, nativeImage, Notification, clipboard, shell } = require('electron');
+const { spawn } = require('child_process');
+const path = require('path');
+const os = require('os');
+
+const APP_NAME = 'Recall';
+const CAPTURE_INTERVAL_MS = Number(process.env.RECALL_CAPTURE_INTERVAL_MS || 30_000);
+const CLIPBOARD_INTERVAL_MS = Number(process.env.RECALL_CLIPBOARD_INTERVAL_MS || 5_000);
+const CALENDAR_INTERVAL_MS = Number(process.env.RECALL_CALENDAR_INTERVAL_MS || 15 * 60_000);
+const PYTHON_BIN = process.env.RECALL_PYTHON || 'python3';
+
+let tray = null;
+let captureTimer = null;
+let clipboardTimer = null;
+let calendarTimer = null;
+let lastClipboardText = '';
+
+function projectRoot() {
+  return path.resolve(__dirname, '..', '..');
+}
+
+function recallDataDir() {
+  return path.join(app.getPath('userData'), 'recall');
+}
+
+function runRecall(args, payload = null) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(PYTHON_BIN, ['-m', 'recall_ai.cli', ...args], {
+      cwd: projectRoot(),
+      env: {
+        ...process.env,
+        RECALL_DATA_DIR: process.env.RECALL_DATA_DIR || recallDataDir(),
+        PYTHONPATH: [projectRoot(), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout.trim());
+      } else {
+        reject(new Error(stderr.trim() || `${PYTHON_BIN} exited with ${code}`));
+      }
+    });
+
+    if (payload) {
+      child.stdin.write(JSON.stringify(payload));
+    }
+    child.stdin.end();
+  });
+}
+
+async function captureWindowActivity() {
+  try {
+    const activeWin = (await import('active-win')).default;
+    const windowInfo = await activeWin();
+    if (!windowInfo) {
+      return;
+    }
+
+    await runRecall(['capture', classifyWindowKind(windowInfo)], {
+      source: 'active-window',
+      app_name: windowInfo.owner?.name || 'Unknown app',
+      title: windowInfo.title || 'Untitled window',
+      url: windowInfo.url || null,
+      metadata: {
+        ownerPath: windowInfo.owner?.path || null,
+        platform: os.platform(),
+      },
+    });
+  } catch (error) {
+    console.error('Recall window capture failed:', error.message);
+  }
+}
+
+function classifyWindowKind(windowInfo) {
+  const appName = (windowInfo.owner?.name || '').toLowerCase();
+  const title = (windowInfo.title || '').toLowerCase();
+  const documentApps = [
+    'word',
+    'excel',
+    'powerpoint',
+    'pages',
+    'numbers',
+    'keynote',
+    'docs',
+    'notion',
+    'obsidian',
+  ];
+  const documentExtensions = ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.pdf', '.md', '.txt'];
+
+  if (
+    documentApps.some((name) => appName.includes(name)) ||
+    documentExtensions.some((extension) => title.includes(extension))
+  ) {
+    return 'document';
+  }
+
+  return 'window';
+}
+
+async function captureClipboardActivity() {
+  try {
+    const text = clipboard.readText();
+    if (!text || text === lastClipboardText) {
+      return;
+    }
+
+    lastClipboardText = text;
+    await runRecall(['capture', 'clipboard'], {
+      source: 'clipboard',
+      title: 'Clipboard update',
+      content: text,
+      metadata: {
+        length: text.length,
+      },
+    });
+  } catch (error) {
+    console.error('Recall clipboard capture failed:', error.message);
+  }
+}
+
+async function captureCalendarActivity() {
+  const calendarPath = process.env.RECALL_CALENDAR_PATH;
+  if (!calendarPath) {
+    return;
+  }
+
+  try {
+    await runRecall(['import-calendar', calendarPath]);
+  } catch (error) {
+    console.error('Recall calendar ingest failed:', error.message);
+  }
+}
+
+async function generateBriefing() {
+  try {
+    const briefing = await runRecall(['briefing']);
+    if (!briefing) {
+      return;
+    }
+
+    new Notification({
+      title: 'Recall morning briefing',
+      body: briefing.length > 180 ? `${briefing.slice(0, 177)}...` : briefing,
+    }).show();
+  } catch (error) {
+    console.error('Recall briefing failed:', error.message);
+  }
+}
+
+function createTray() {
+  const icon = nativeImage.createEmpty();
+  tray = new Tray(icon);
+  tray.setToolTip(`${APP_NAME} is capturing local work context`);
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: 'Generate morning briefing',
+        click: generateBriefing,
+      },
+      {
+        label: 'Open local data folder',
+        click: () => shell.openPath(recallDataDir()),
+      },
+      { type: 'separator' },
+      {
+        label: 'Quit Recall',
+        click: () => app.quit(),
+      },
+    ]),
+  );
+}
+
+async function startBackgroundCapture() {
+  await runRecall(['init-db']);
+  await captureWindowActivity();
+  await captureClipboardActivity();
+  await captureCalendarActivity();
+
+  captureTimer = setInterval(captureWindowActivity, CAPTURE_INTERVAL_MS);
+  clipboardTimer = setInterval(captureClipboardActivity, CLIPBOARD_INTERVAL_MS);
+  calendarTimer = setInterval(captureCalendarActivity, CALENDAR_INTERVAL_MS);
+}
+
+app.whenReady().then(async () => {
+  app.setName(APP_NAME);
+  createTray();
+  await startBackgroundCapture();
+});
+
+app.on('window-all-closed', (event) => {
+  event.preventDefault();
+});
+
+app.on('before-quit', () => {
+  if (captureTimer) {
+    clearInterval(captureTimer);
+  }
+  if (clipboardTimer) {
+    clearInterval(clipboardTimer);
+  }
+  if (calendarTimer) {
+    clearInterval(calendarTimer);
+  }
+});

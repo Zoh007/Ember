@@ -1,0 +1,28 @@
+{
+  "name": "recall",
+  "version": "0.1.0",
+  "description": "A private desktop memory assistant that captures work context locally and generates daily briefings.",
+  "main": "app/electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "briefing": "python3 -m recall_ai.cli briefing",
+    "init-db": "python3 -m recall_ai.cli init-db",
+    "test": "python3 -m unittest discover -s tests -p 'test_*.py'"
+  },
+  "keywords": [
+    "desktop",
+    "memory",
+    "electron",
+    "sqlite",
+    "ai"
+  ],
+  "author": "",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "active-win": "latest"
+  },
+  "devDependencies": {
+    "electron": "latest"
+  }
+}
