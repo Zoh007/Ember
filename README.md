@@ -10,6 +10,8 @@ This repository contains a v0.1 implementation:
 - Electron shell that lives in the tray/menu bar.
 - Active application and window-title capture with common document-app
   classification.
+- Optional screen snapshots with AI vision summaries when `OPENAI_API_KEY` is
+  configured.
 - Clipboard capture with de-duplication.
 - Calendar event import from local `.ics` files.
 - Local SQLite storage under the user's application data directory.
@@ -36,12 +38,27 @@ npm start
 ```
 
 Recall starts without a main window. Use the tray/menu bar item to generate a
-morning briefing or open the local data folder. The **Generate morning
-briefing** action writes and opens `latest-briefing.txt` in the local data
-folder; the SQLite database is not meant to be opened as a text file.
+morning briefing, capture the screen now, or open the local data folder. The
+**Generate morning briefing** action writes and opens `latest-briefing.txt` in
+the local data folder; the SQLite database is not meant to be opened as a text
+file.
 
 On macOS, Recall appears as a small circular icon in the menu bar near the
 clock and Control Center. It does not open a dock window.
+
+For screen reading, macOS will ask for Screen Recording permission. Grant it in
+System Settings -> Privacy & Security -> Screen & System Audio Recording, then
+restart Recall. Screen snapshots stay in the local data folder. To summarize
+what is visible on screen, choose **Open settings** from the Recall menu and add
+an OpenAI key to `settings.json`:
+
+```json
+{
+  "openai_api_key": "sk-...",
+  "screen_capture_enabled": true,
+  "screen_capture_interval_minutes": 2
+}
+```
 
 ## Download a packaged build
 

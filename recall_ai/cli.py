@@ -3,12 +3,14 @@ from __future__ import annotations
 import argparse
 from datetime import date, datetime, timezone
 import json
+from pathlib import Path
 import sys
 from typing import Any
 
 from .briefing import generate_daily_briefing
 from .calendar_import import import_ics
 from .config import database_path
+from .screen_vision import summarize_screen
 from .storage import ActivityInput, RecallStore
 
 
@@ -20,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("init-db", help="Create or migrate the local database")
 
     capture_parser = subparsers.add_parser("capture", help="Capture an activity event from stdin JSON")
-    capture_parser.add_argument("kind", choices=["window", "clipboard", "calendar", "document"])
+    capture_parser.add_argument("kind", choices=["window", "clipboard", "calendar", "document", "screen"])
 
     calendar_parser = subparsers.add_parser(
         "import-calendar",
@@ -31,6 +33,9 @@ def main(argv: list[str] | None = None) -> int:
 
     briefing_parser = subparsers.add_parser("briefing", help="Generate a morning briefing")
     briefing_parser.add_argument("--date", dest="target_date", help="Briefing date in YYYY-MM-DD format")
+
+    screen_parser = subparsers.add_parser("capture-screen", help="Summarize and capture a local screenshot")
+    screen_parser.add_argument("image_path", help="Path to the screenshot image")
 
     args = parser.parse_args(argv)
     store = RecallStore(args.db)
@@ -57,6 +62,11 @@ def main(argv: list[str] | None = None) -> int:
         store.initialize()
         target_date = _parse_date(args.target_date) if args.target_date else None
         print(generate_daily_briefing(store, target_date))
+        return 0
+
+    if args.command == "capture-screen":
+        store.initialize()
+        print(summarize_screen(args.image_path, store))
         return 0
 
     parser.error(f"Unknown command: {args.command}")

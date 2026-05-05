@@ -139,6 +139,26 @@ class BriefingTests(unittest.TestCase):
         self.assertEqual(second_count, 0)
         self.assertIn("Founder sync", briefing)
 
+    def test_fallback_briefing_includes_screen_summaries(self) -> None:
+        activities = [
+            Activity(
+                id=1,
+                kind="screen",
+                source="screen-capture",
+                app_name="Screen",
+                title="Screen snapshot",
+                content="Screen shows Slack thread discussing onboarding blockers.",
+                url=None,
+                metadata={"screenshot_path": "/tmp/shot.jpg"},
+                occurred_at=datetime(2026, 5, 5, 16, 0, tzinfo=timezone.utc),
+            ),
+        ]
+
+        briefing = fallback_briefing(activities, date(2026, 5, 5))
+
+        self.assertIn("screen observations", briefing)
+        self.assertIn("onboarding blockers", briefing)
+
 
 if __name__ == "__main__":
     unittest.main()

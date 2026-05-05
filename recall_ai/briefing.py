@@ -95,6 +95,7 @@ def build_briefing_prompt(activities: Iterable[Activity], target_date: date) -> 
     rows = list(activities)
     segments = build_work_segments(rows)
     clipboard_notes = _clipboard_snippets(rows)
+    screen_notes = _screen_summaries(rows)
     decisions = infer_decision_markers(rows)
     unresolved = infer_unresolved_markers(rows)
 
@@ -117,6 +118,9 @@ def build_briefing_prompt(activities: Iterable[Activity], target_date: date) -> 
             "Clipboard/document snippets:",
             *(clipboard_lines or ["- None captured"]),
             "",
+            "Screen observations:",
+            *([f"- {note}" for note in screen_notes[:10]] or ["- None captured"]),
+            "",
             "Decision-like markers:",
             *(decision_lines or ["- None detected"]),
             "",
@@ -132,6 +136,7 @@ def fallback_briefing(activities: Iterable[Activity], target_date: date) -> str:
     rows = list(activities)
     segments = build_work_segments(rows)
     app_counts = Counter(activity.app_name for activity in rows if activity.app_name)
+    screen_notes = _screen_summaries(rows)
     decisions = infer_decision_markers(rows)
     unresolved = infer_unresolved_markers(rows)
 
@@ -151,6 +156,8 @@ def fallback_briefing(activities: Iterable[Activity], target_date: date) -> str:
     ]
     if timeline:
         lines.append(f"- Recent timeline: {timeline}.")
+    if screen_notes:
+        lines.append(f"- Recent screen observations: {'; '.join(screen_notes[:3])}.")
 
     lines.extend(
         [
@@ -172,7 +179,7 @@ def build_work_segments(activities: Iterable[Activity], gap_minutes: int = 20) -
     windows = [
         activity
         for activity in sorted(activities, key=lambda item: item.occurred_at)
-        if activity.kind in {"window", "document", "calendar"} and activity.title
+        if activity.kind in {"window", "document", "calendar", "screen"} and activity.title
     ]
     segments: list[WorkSegment] = []
     for activity in windows:
@@ -283,6 +290,18 @@ def _clipboard_snippets(activities: Iterable[Activity]) -> list[str]:
             content = f"{content[:177]}..."
         snippets.append(f"{activity.occurred_at.strftime('%H:%M')} {content}")
     return snippets
+
+
+def _screen_summaries(activities: Iterable[Activity]) -> list[str]:
+    summaries: list[str] = []
+    for activity in sorted(activities, key=lambda item: item.occurred_at, reverse=True):
+        if activity.kind != "screen":
+            continue
+        summary = (activity.content or activity.metadata.get("summary") or "").strip()
+        if not summary:
+            continue
+        summaries.append(f"{activity.occurred_at.strftime('%H:%M')} {summary}")
+    return summaries
 
 
 def _latest_substantive_activity(activities: Iterable[Activity]) -> Activity | None:

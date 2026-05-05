@@ -1,4 +1,4 @@
-const { app, Tray, Menu, nativeImage, Notification, clipboard, shell } = require('electron');
+const { app, Tray, Menu, nativeImage, Notification, clipboard, desktopCapturer, shell } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -8,6 +8,8 @@ const APP_NAME = 'Recall';
 const CAPTURE_INTERVAL_MS = Number(process.env.RECALL_CAPTURE_INTERVAL_MS || 30_000);
 const CLIPBOARD_INTERVAL_MS = Number(process.env.RECALL_CLIPBOARD_INTERVAL_MS || 5_000);
 const CALENDAR_INTERVAL_MS = Number(process.env.RECALL_CALENDAR_INTERVAL_MS || 15 * 60_000);
+const SCREEN_CAPTURE_INTERVAL_MS = Number(process.env.RECALL_SCREEN_CAPTURE_INTERVAL_MS || 2 * 60_000);
+const SCREEN_CAPTURE_ENABLED = process.env.RECALL_SCREEN_CAPTURE !== '0';
 const PYTHON_BIN = process.env.RECALL_PYTHON || 'python3';
 const TRAY_ICON_PNG =
   'iVBORw0KGgoAAAANSUhEUgAAABIAAAASCAYAAABWzo5XAAAAOElEQVR42mNgGErgPw5MsQEkGfifREy0QaTKk+UanIahS+LTOGoQFZIAVaKfqgmSalmEqpl2YAEAlkOTbRqLSw4AAAAASUVORK5CYII=';
@@ -16,6 +18,7 @@ let tray = null;
 let captureTimer = null;
 let clipboardTimer = null;
 let calendarTimer = null;
+let screenTimer = null;
 let lastClipboardText = '';
 
 function projectRoot() {
@@ -30,6 +33,18 @@ function latestBriefingPath() {
   return path.join(recallDataDir(), 'latest-briefing.txt');
 }
 
+function settingsPath() {
+  return path.join(recallDataDir(), 'settings.json');
+}
+
+function screenshotsDir() {
+  return path.join(recallDataDir(), 'screenshots');
+}
+
+function timestampForFilename() {
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
 function bundledRecallExecutable() {
   const executable = process.platform === 'win32' ? 'recall-ai.exe' : 'recall-ai';
   const candidates = [
@@ -39,6 +54,45 @@ function bundledRecallExecutable() {
   return candidates.find((candidate) => candidate && fs.existsSync(candidate));
 }
 
+function ensureSettingsFile() {
+  fs.mkdirSync(recallDataDir(), { recursive: true });
+  if (!fs.existsSync(settingsPath())) {
+    fs.writeFileSync(
+      settingsPath(),
+      JSON.stringify(
+        {
+          openai_api_key: "",
+          screen_capture_enabled: true,
+          screen_capture_interval_minutes: 2,
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+  }
+}
+
+function recallEnvironment() {
+  const env = {
+    ...process.env,
+    RECALL_DATA_DIR: process.env.RECALL_DATA_DIR || recallDataDir(),
+    PYTHONPATH: [projectRoot(), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
+  };
+
+  try {
+    ensureSettingsFile();
+    const settings = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+    if (!env.OPENAI_API_KEY && settings.openai_api_key) {
+      env.OPENAI_API_KEY = settings.openai_api_key;
+    }
+  } catch (error) {
+    console.error('Recall settings load failed:', error.message);
+  }
+
+  return env;
+}
+
 function runRecall(args, payload = null) {
   return new Promise((resolve, reject) => {
     const recallExecutable = bundledRecallExecutable();
@@ -46,11 +100,7 @@ function runRecall(args, payload = null) {
     const commandArgs = recallExecutable ? args : ['-m', 'recall_ai.cli', ...args];
     const child = spawn(command, commandArgs, {
       cwd: projectRoot(),
-      env: {
-        ...process.env,
-        RECALL_DATA_DIR: process.env.RECALL_DATA_DIR || recallDataDir(),
-        PYTHONPATH: [projectRoot(), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
-      },
+      env: recallEnvironment(),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -164,6 +214,43 @@ async function captureCalendarActivity() {
   }
 }
 
+async function captureScreenActivity({ notify = false } = {}) {
+  if (!SCREEN_CAPTURE_ENABLED) {
+    return;
+  }
+
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 1440, height: 900 },
+    });
+    const source = sources[0];
+    if (!source || source.thumbnail.isEmpty()) {
+      throw new Error('No screen thumbnail was available. Screen Recording permission may be required.');
+    }
+
+    fs.mkdirSync(screenshotsDir(), { recursive: true });
+    const screenshotPath = path.join(screenshotsDir(), `screen-${timestampForFilename()}.png`);
+    fs.writeFileSync(screenshotPath, source.thumbnail.toPNG());
+
+    const summary = await runRecall(['capture-screen', screenshotPath]);
+    if (notify) {
+      new Notification({
+        title: 'Recall captured your screen',
+        body: summary ? summary.slice(0, 180) : 'Saved a local screenshot for the next briefing.',
+      }).show();
+    }
+  } catch (error) {
+    console.error('Recall screen capture failed:', error.message);
+    if (notify) {
+      new Notification({
+        title: 'Recall screen capture failed',
+        body: `${error.message}. On macOS, enable Screen Recording for Recall in Privacy & Security.`,
+      }).show();
+    }
+  }
+}
+
 async function generateBriefing() {
   try {
     const briefing = await runRecall(['briefing']);
@@ -196,6 +283,11 @@ async function openLatestBriefing() {
   await shell.openPath(briefingPath);
 }
 
+async function openSettingsFile() {
+  ensureSettingsFile();
+  await shell.openPath(settingsPath());
+}
+
 function createTray() {
   const icon = nativeImage.createFromBuffer(Buffer.from(TRAY_ICON_PNG, 'base64'));
   icon.setTemplateImage(true);
@@ -212,6 +304,14 @@ function createTray() {
         click: openLatestBriefing,
       },
       {
+        label: 'Capture screen now',
+        click: () => captureScreenActivity({ notify: true }),
+      },
+      {
+        label: 'Open settings',
+        click: openSettingsFile,
+      },
+      {
         label: 'Open local data folder (advanced)',
         click: () => shell.openPath(recallDataDir()),
       },
@@ -225,14 +325,17 @@ function createTray() {
 }
 
 async function startBackgroundCapture() {
+  ensureSettingsFile();
   await runRecall(['init-db']);
   await captureWindowActivity();
   await captureClipboardActivity();
   await captureCalendarActivity();
+  await captureScreenActivity();
 
   captureTimer = setInterval(captureWindowActivity, CAPTURE_INTERVAL_MS);
   clipboardTimer = setInterval(captureClipboardActivity, CLIPBOARD_INTERVAL_MS);
   calendarTimer = setInterval(captureCalendarActivity, CALENDAR_INTERVAL_MS);
+  screenTimer = setInterval(captureScreenActivity, SCREEN_CAPTURE_INTERVAL_MS);
 }
 
 app.whenReady().then(async () => {
@@ -254,5 +357,8 @@ app.on('before-quit', () => {
   }
   if (calendarTimer) {
     clearInterval(calendarTimer);
+  }
+  if (screenTimer) {
+    clearInterval(screenTimer);
   }
 });
