@@ -36,7 +36,9 @@ npm start
 ```
 
 Recall starts without a main window. Use the tray/menu bar item to generate a
-morning briefing or open the local data folder.
+morning briefing or open the local data folder. The **Generate morning
+briefing** action writes and opens `latest-briefing.txt` in the local data
+folder; the SQLite database is not meant to be opened as a text file.
 
 On macOS, Recall appears as a small circular icon in the menu bar near the
 clock and Control Center. It does not open a dock window.

@@ -26,6 +26,10 @@ function recallDataDir() {
   return path.join(app.getPath('userData'), 'recall');
 }
 
+function latestBriefingPath() {
+  return path.join(recallDataDir(), 'latest-briefing.txt');
+}
+
 function bundledRecallExecutable() {
   const executable = process.platform === 'win32' ? 'recall-ai.exe' : 'recall-ai';
   const candidates = [
@@ -167,6 +171,10 @@ async function generateBriefing() {
       return;
     }
 
+    fs.mkdirSync(recallDataDir(), { recursive: true });
+    fs.writeFileSync(latestBriefingPath(), `${briefing}\n`, 'utf8');
+    await shell.openPath(latestBriefingPath());
+
     new Notification({
       title: 'Recall morning briefing',
       body: briefing.length > 180 ? `${briefing.slice(0, 177)}...` : briefing,
@@ -174,6 +182,18 @@ async function generateBriefing() {
   } catch (error) {
     console.error('Recall briefing failed:', error.message);
   }
+}
+
+async function openLatestBriefing() {
+  const briefingPath = latestBriefingPath();
+  if (!fs.existsSync(briefingPath)) {
+    new Notification({
+      title: 'Recall',
+      body: 'No readable briefing exists yet. Choose Generate and open briefing first.',
+    }).show();
+    return;
+  }
+  await shell.openPath(briefingPath);
 }
 
 function createTray() {
@@ -184,11 +204,15 @@ function createTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
-        label: 'Generate morning briefing',
+        label: 'Generate and open briefing',
         click: generateBriefing,
       },
       {
-        label: 'Open local data folder',
+        label: 'Open latest briefing',
+        click: openLatestBriefing,
+      },
+      {
+        label: 'Open local data folder (advanced)',
         click: () => shell.openPath(recallDataDir()),
       },
       { type: 'separator' },
