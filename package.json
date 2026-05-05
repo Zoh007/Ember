@@ -5,6 +5,9 @@
   "main": "app/electron/main.js",
   "scripts": {
     "start": "electron .",
+    "build:python": "node scripts/build-python.js",
+    "package": "npm run build:python && electron-builder",
+    "package:dir": "npm run build:python && electron-builder --dir",
     "briefing": "python3 -m recall_ai.cli briefing",
     "init-db": "python3 -m recall_ai.cli init-db",
     "test": "python3 -m unittest discover -s tests -p 'test_*.py'"
@@ -23,6 +26,46 @@
     "active-win": "latest"
   },
   "devDependencies": {
-    "electron": "latest"
+    "electron": "latest",
+    "electron-builder": "latest"
+  },
+  "build": {
+    "appId": "com.recall.desktop",
+    "productName": "Recall",
+    "asar": false,
+    "files": [
+      "app/electron/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "dist-python",
+        "to": "python"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "linux": {
+      "category": "Utility",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
   }
 }

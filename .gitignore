@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist-python/
+release/
 build/
 .DS_Store
 *.pyc

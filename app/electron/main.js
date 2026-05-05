@@ -1,5 +1,6 @@
 const { app, Tray, Menu, nativeImage, Notification, clipboard, shell } = require('electron');
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
@@ -23,9 +24,21 @@ function recallDataDir() {
   return path.join(app.getPath('userData'), 'recall');
 }
 
+function bundledRecallExecutable() {
+  const executable = process.platform === 'win32' ? 'recall-ai.exe' : 'recall-ai';
+  const candidates = [
+    path.join(process.resourcesPath || '', 'python', executable),
+    path.join(projectRoot(), 'dist-python', executable),
+  ];
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate));
+}
+
 function runRecall(args, payload = null) {
   return new Promise((resolve, reject) => {
-    const child = spawn(PYTHON_BIN, ['-m', 'recall_ai.cli', ...args], {
+    const recallExecutable = bundledRecallExecutable();
+    const command = recallExecutable || PYTHON_BIN;
+    const commandArgs = recallExecutable ? args : ['-m', 'recall_ai.cli', ...args];
+    const child = spawn(command, commandArgs, {
       cwd: projectRoot(),
       env: {
         ...process.env,

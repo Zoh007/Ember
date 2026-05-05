@@ -38,6 +38,30 @@ npm start
 Recall starts without a main window. Use the tray/menu bar item to generate a
 morning briefing or open the local data folder.
 
+## Download a packaged build
+
+Every push to `main` can build downloadable desktop archives through GitHub
+Actions:
+
+1. Open the repository's **Actions** tab.
+2. Select **Build desktop app**.
+3. Open the latest successful run.
+4. Download the artifact for your operating system:
+   - `Recall-macos`
+   - `Recall-windows`
+   - `Recall-linux`
+
+The packaged app includes the Python Recall CLI as a bundled executable, so you
+do not need a separate Python environment for normal app usage.
+
+To build locally after installing dependencies:
+
+```bash
+npm run package
+```
+
+Packaged apps are written to `release/`.
+
 ## Python CLI
 
 Initialize the local database:
