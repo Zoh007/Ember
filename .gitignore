@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dist-python/
+release/
+build/
+.DS_Store
+*.pyc
+__pycache__/
+.pytest_cache/
+.venv/
+*.sqlite
+*.sqlite3
+recall-data/
