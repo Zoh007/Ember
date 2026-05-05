@@ -6,8 +6,8 @@
   "scripts": {
     "start": "electron .",
     "build:python": "node scripts/build-python.js",
-    "package": "npm run build:python && electron-builder --publish never",
-    "package:dir": "npm run build:python && electron-builder --dir --publish never",
+    "package": "npm run build:python && electron-builder --dir",
+    "package:installer": "npm run build:python && electron-builder --publish=never",
     "briefing": "python3 -m recall_ai.cli briefing",
     "init-db": "python3 -m recall_ai.cli init-db",
     "test": "python -m unittest discover -s tests"

@@ -61,6 +61,8 @@ npm run package
 ```
 
 Packaged apps are written to `release/`.
+The CI workflow creates unpacked app artifacts, which can be downloaded and run
+directly from the extracted artifact folder.
 
 ## Python CLI
 
