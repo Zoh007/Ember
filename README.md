@@ -38,6 +38,9 @@ npm start
 Recall starts without a main window. Use the tray/menu bar item to generate a
 morning briefing or open the local data folder.
 
+On macOS, Recall appears as a small circular icon in the menu bar near the
+clock and Control Center. It does not open a dock window.
+
 ## Download a packaged build
 
 ### Internal builds

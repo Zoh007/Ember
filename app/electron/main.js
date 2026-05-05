@@ -9,6 +9,8 @@ const CAPTURE_INTERVAL_MS = Number(process.env.RECALL_CAPTURE_INTERVAL_MS || 30_
 const CLIPBOARD_INTERVAL_MS = Number(process.env.RECALL_CLIPBOARD_INTERVAL_MS || 5_000);
 const CALENDAR_INTERVAL_MS = Number(process.env.RECALL_CALENDAR_INTERVAL_MS || 15 * 60_000);
 const PYTHON_BIN = process.env.RECALL_PYTHON || 'python3';
+const TRAY_ICON_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAABIAAAASCAYAAABWzo5XAAAAOElEQVR42mNgGErgPw5MsQEkGfifREy0QaTKk+UanIahS+LTOGoQFZIAVaKfqgmSalmEqpl2YAEAlkOTbRqLSw4AAAAASUVORK5CYII=';
 
 let tray = null;
 let captureTimer = null;
@@ -175,7 +177,8 @@ async function generateBriefing() {
 }
 
 function createTray() {
-  const icon = nativeImage.createEmpty();
+  const icon = nativeImage.createFromBuffer(Buffer.from(TRAY_ICON_PNG, 'base64'));
+  icon.setTemplateImage(true);
   tray = new Tray(icon);
   tray.setToolTip(`${APP_NAME} is capturing local work context`);
   tray.setContextMenu(
