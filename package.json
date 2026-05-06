@@ -24,6 +24,8 @@
   "license": "UNLICENSED",
   "private": true,
   "dependencies": {
+    "@tesseract.js-data/eng": "latest",
+    "tesseract.js": "latest",
     "active-win": "latest"
   },
   "devDependencies": {

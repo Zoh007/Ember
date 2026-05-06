@@ -12,6 +12,7 @@ from .storage import ActivityInput, RecallStore
 
 
 OPENAI_VISION_MODEL = "gpt-4o-mini"
+LOCAL_OCR_MODEL = "tesseract.js"
 OLLAMA_MODEL = os.environ.get("RECALL_OLLAMA_MODEL", "llava:7b")
 OLLAMA_URL = os.environ.get("RECALL_OLLAMA_URL", "http://127.0.0.1:11434")
 VISION_PROMPT = (
@@ -22,14 +23,25 @@ VISION_PROMPT = (
 )
 
 
-def summarize_screen(image_path: str | Path, store: RecallStore, provider: str | None = None) -> str:
+def summarize_screen(
+    image_path: str | Path,
+    store: RecallStore,
+    provider: str | None = None,
+    ocr_text: str | None = None,
+) -> str:
     """Summarize a local screenshot and record the result as a screen activity."""
     path = Path(image_path).expanduser()
-    provider = (provider or os.environ.get("RECALL_VISION_PROVIDER", "ollama")).lower()
-    model = OLLAMA_MODEL if provider != "openai" else OPENAI_VISION_MODEL
+    provider = (provider or os.environ.get("RECALL_VISION_PROVIDER", "local-ocr")).lower()
+    model = LOCAL_OCR_MODEL
     try:
-        if provider == "none":
-            summary = "Screen snapshot saved locally. Set Recall's vision provider to Ollama or OpenAI to summarize visible screen content."
+        if ocr_text:
+            summary = _local_ocr_summary(ocr_text)
+            provider = "local-ocr"
+            model = LOCAL_OCR_MODEL
+        elif provider in {"none", "local", "local-ocr", "ocr", "bundled-ocr"}:
+            summary = (
+                "Screen snapshot saved locally. Bundled OCR did not return readable text for this capture."
+            )
             model = "none"
         elif provider == "openai":
             summary = _openai_vision_summary(path)
@@ -60,6 +72,15 @@ def summarize_screen(image_path: str | Path, store: RecallStore, provider: str |
         ),
     )
     return summary
+
+
+def _local_ocr_summary(ocr_text: str) -> str:
+    cleaned = " ".join(ocr_text.split())
+    if not cleaned:
+        return "Screen snapshot saved locally. Bundled OCR did not find readable text."
+    if len(cleaned) > 900:
+        cleaned = f"{cleaned[:897]}..."
+    return f"Visible screen text: {cleaned}"
 
 
 def _ollama_vision_summary(path: Path) -> str:

@@ -66,7 +66,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "capture-screen":
         store.initialize()
-        print(summarize_screen(args.image_path, store))
+        payload = _read_json_stdin()
+        screen_text = payload.get("screen_text") if isinstance(payload.get("screen_text"), str) else None
+        provider = payload.get("provider") if isinstance(payload.get("provider"), str) else None
+        print(summarize_screen(args.image_path, store, provider=provider, ocr_text=screen_text))
         return 0
 
     parser.error(f"Unknown command: {args.command}")

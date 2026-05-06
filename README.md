@@ -10,8 +10,8 @@ This repository contains a v0.1 implementation:
 - Electron shell that lives in the tray/menu bar.
 - Active application and window-title capture with common document-app
   classification.
-- Optional screen snapshots with local Ollama vision summaries or OpenAI vision
-  summaries.
+- Optional screen snapshots with bundled cross-platform OCR, plus optional local
+  Ollama or OpenAI vision summaries.
 - Clipboard capture with de-duplication.
 - Calendar event import from local `.ics` files.
 - Local SQLite storage under the user's application data directory.
@@ -48,9 +48,11 @@ clock and Control Center. It does not open a dock window.
 
 For screen reading, macOS will ask for Screen Recording permission. Grant it in
 System Settings -> Privacy & Security -> Screen & System Audio Recording, then
-restart Recall. Screen snapshots stay in the local data folder.
+restart Recall. Screen snapshots stay in the local data folder. Downloaded apps
+include bundled OCR, so users do not need to install Ollama or pay for OpenAI to
+extract visible text from the screen.
 
-The free path is local Ollama vision:
+Optional: local Ollama vision can produce richer descriptions than OCR:
 
 ```bash
 brew install ollama
@@ -58,12 +60,12 @@ ollama serve
 ollama pull llava
 ```
 
-Then choose **Capture screen now** in Recall. The default `settings.json` uses
-Ollama automatically:
+Then choose **Capture screen now** in Recall and set `settings.json` to use
+Ollama:
 
 ```json
 {
-  "vision_provider": "ollama",
+  "vision_provider": "local-ocr",
   "ollama_model": "llava",
   "ollama_url": "http://127.0.0.1:11434",
   "openai_api_key": "",
@@ -72,8 +74,9 @@ Ollama automatically:
 }
 ```
 
-If you prefer OpenAI, set `"vision_provider": "openai"` and add
-`"openai_api_key": "sk-..."`.
+The default `"vision_provider": "local-ocr"` requires no extra installs. If you prefer
+Ollama, set `"vision_provider": "ollama"`. If you prefer OpenAI, set
+`"vision_provider": "openai"` and add `"openai_api_key": "sk-..."`.
 
 ## Download a packaged build
 

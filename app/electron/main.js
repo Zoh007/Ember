@@ -3,6 +3,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { extractScreenText } = require('./ocr');
 
 const APP_NAME = 'Recall';
 const CAPTURE_INTERVAL_MS = Number(process.env.RECALL_CAPTURE_INTERVAL_MS || 30_000);
@@ -61,8 +62,8 @@ function ensureSettingsFile() {
       settingsPath(),
       JSON.stringify(
         {
+          vision_provider: "ocr",
           openai_api_key: "",
-          vision_provider: "ollama",
           ollama_url: "http://127.0.0.1:11434",
           ollama_model: "llava",
           screen_capture_enabled: true,
@@ -245,7 +246,10 @@ async function captureScreenActivity({ notify = false } = {}) {
     const screenshotPath = path.join(screenshotsDir(), `screen-${timestampForFilename()}.png`);
     fs.writeFileSync(screenshotPath, source.thumbnail.toPNG());
 
-    const summary = await runRecall(['capture-screen', screenshotPath]);
+    const screenText = await extractScreenText(screenshotPath);
+    const summary = await runRecall(['capture-screen', screenshotPath], {
+      screen_text: screenText,
+    });
     if (notify) {
       new Notification({
         title: 'Recall captured your screen',
