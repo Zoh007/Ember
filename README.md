@@ -10,8 +10,8 @@ This repository contains a v0.1 implementation:
 - Electron shell that lives in the tray/menu bar.
 - Active application and window-title capture with common document-app
   classification.
-- Optional screen snapshots with AI vision summaries when `OPENAI_API_KEY` is
-  configured.
+- Optional screen snapshots with local Ollama vision summaries or OpenAI vision
+  summaries.
 - Clipboard capture with de-duplication.
 - Calendar event import from local `.ics` files.
 - Local SQLite storage under the user's application data directory.
@@ -48,17 +48,32 @@ clock and Control Center. It does not open a dock window.
 
 For screen reading, macOS will ask for Screen Recording permission. Grant it in
 System Settings -> Privacy & Security -> Screen & System Audio Recording, then
-restart Recall. Screen snapshots stay in the local data folder. To summarize
-what is visible on screen, choose **Open settings** from the Recall menu and add
-an OpenAI key to `settings.json`:
+restart Recall. Screen snapshots stay in the local data folder.
+
+The free path is local Ollama vision:
+
+```bash
+brew install ollama
+ollama serve
+ollama pull llava
+```
+
+Then choose **Capture screen now** in Recall. The default `settings.json` uses
+Ollama automatically:
 
 ```json
 {
-  "openai_api_key": "sk-...",
+  "vision_provider": "ollama",
+  "ollama_model": "llava",
+  "ollama_url": "http://127.0.0.1:11434",
+  "openai_api_key": "",
   "screen_capture_enabled": true,
   "screen_capture_interval_minutes": 2
 }
 ```
+
+If you prefer OpenAI, set `"vision_provider": "openai"` and add
+`"openai_api_key": "sk-..."`.
 
 ## Download a packaged build
 

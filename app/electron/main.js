@@ -62,6 +62,9 @@ function ensureSettingsFile() {
       JSON.stringify(
         {
           openai_api_key: "",
+          vision_provider: "ollama",
+          ollama_url: "http://127.0.0.1:11434",
+          ollama_model: "llava",
           screen_capture_enabled: true,
           screen_capture_interval_minutes: 2,
         },
@@ -85,6 +88,15 @@ function recallEnvironment() {
     const settings = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
     if (!env.OPENAI_API_KEY && settings.openai_api_key) {
       env.OPENAI_API_KEY = settings.openai_api_key;
+    }
+    if (settings.vision_provider) {
+      env.RECALL_VISION_PROVIDER = settings.vision_provider;
+    }
+    if (settings.ollama_url) {
+      env.RECALL_OLLAMA_URL = settings.ollama_url;
+    }
+    if (settings.ollama_model) {
+      env.RECALL_OLLAMA_MODEL = settings.ollama_model;
     }
   } catch (error) {
     console.error('Recall settings load failed:', error.message);

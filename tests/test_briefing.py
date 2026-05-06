@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from pathlib import Path
 import tempfile
 import unittest
 
 from recall_ai.briefing import build_work_segments, fallback_briefing, generate_daily_briefing
 from recall_ai.calendar_import import import_ics
+from recall_ai.screen_vision import summarize_screen
 from recall_ai.storage import Activity, RecallStore
 
 
@@ -158,6 +160,18 @@ class BriefingTests(unittest.TestCase):
 
         self.assertIn("screen observations", briefing)
         self.assertIn("onboarding blockers", briefing)
+
+    def test_screen_summary_records_local_placeholder_without_vision_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            image_path = Path(tempdir) / "screen.png"
+            image_path.write_bytes(b"not-a-real-png")
+            store = RecallStore(f"{tempdir}/recall.sqlite3")
+
+            summary = summarize_screen(image_path, store, provider="none")
+            briefing = generate_daily_briefing(store, date.today())
+
+        self.assertIn("Screen snapshot saved locally", summary)
+        self.assertIn("Screen snapshot saved locally", briefing)
 
 
 if __name__ == "__main__":
