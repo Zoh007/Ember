@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from .briefing import generate_daily_briefing
+from .briefing import generate_daily_briefing, _day_bounds
 from .calendar_import import import_ics
 from .config import database_path
 from .screen_vision import summarize_screen
@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("init-db", help="Create or migrate the local database")
 
     capture_parser = subparsers.add_parser("capture", help="Capture an activity event from stdin JSON")
-    capture_parser.add_argument("kind", choices=["window", "clipboard", "calendar", "document", "screen", "app", "app-list"])
+    capture_parser.add_argument("kind", choices=["window", "clipboard", "calendar", "document", "screen", "app", "app-list", "session"])
 
     calendar_parser = subparsers.add_parser(
         "import-calendar",
@@ -37,6 +37,9 @@ def main(argv: list[str] | None = None) -> int:
     screen_parser = subparsers.add_parser("capture-screen", help="Summarize and capture a local screenshot")
     screen_parser.add_argument("image_path", help="Path to the screenshot image")
 
+    query_parser = subparsers.add_parser("query-activities", help="Query activities as JSON")
+    query_parser.add_argument("--date", dest="target_date", help="Query date in YYYY-MM-DD format (defaults to today)")
+
     args = parser.parse_args(argv)
     store = RecallStore(args.db)
 
@@ -48,6 +51,28 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "capture":
         store.initialize()
         payload = _read_json_stdin()
+        # Session capture is handled specially (start/end)
+        if args.kind == "session":
+            action = payload.get("action") or payload.get("metadata", {}).get("action") or "start"
+            if action == "start":
+                session_id = store.start_session(
+                    app_name=payload.get("app_name"),
+                    title=payload.get("title"),
+                    metadata=payload.get("metadata"),
+                    started_at=(datetime.fromisoformat(payload.get("occurred_at").replace("Z", "+00:00")) if payload.get("occurred_at") else None),
+                )
+                print(session_id)
+                return 0
+            else:
+                session_id = store.end_session(
+                    app_name=payload.get("app_name"),
+                    title=payload.get("title"),
+                    metadata=payload.get("metadata"),
+                    ended_at=(datetime.fromisoformat(payload.get("occurred_at").replace("Z", "+00:00")) if payload.get("occurred_at") else None),
+                )
+                print(session_id or "")
+                return 0
+
         event_id = store.record_activity(_activity_from_payload(args.kind, payload))
         print(event_id)
         return 0
@@ -62,6 +87,27 @@ def main(argv: list[str] | None = None) -> int:
         store.initialize()
         target_date = _parse_date(args.target_date) if args.target_date else None
         print(generate_daily_briefing(store, target_date))
+        return 0
+
+    if args.command == "query-activities":
+        store.initialize()
+        target_date = _parse_date(args.target_date) if args.target_date else date.today()
+        activities = store.activities_between(*_day_bounds(target_date))
+        activities_json = [
+            {
+                "id": a.id,
+                "kind": a.kind,
+                "occurred_at": a.occurred_at.isoformat(),
+                "source": a.source,
+                "app_name": a.app_name,
+                "title": a.title,
+                "content": a.content[:200] if a.content else "",
+                "url": a.url,
+                "metadata": a.metadata or {},
+            }
+            for a in activities
+        ]
+        print(json.dumps(activities_json))
         return 0
 
     if args.command == "capture-screen":

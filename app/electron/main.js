@@ -1,4 +1,4 @@
-const { app, Tray, Menu, nativeImage, Notification, clipboard, desktopCapturer, shell } = require('electron');
+const { app, Tray, Menu, nativeImage, Notification, clipboard, desktopCapturer, shell, BrowserWindow, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -308,6 +308,54 @@ async function openSettingsFile() {
   await shell.openPath(settingsPath());
 }
 
+async function openViewerWindow() {
+  const viewerWindow = new BrowserWindow({
+    width: 1100,
+    height: 700,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-viewer.js'),
+      contextIsolation: true,
+      enableRemoteModule: false,
+    },
+  });
+
+  viewerWindow.loadFile(path.join(__dirname, 'viewer.html'));
+}
+
+async function getBriefingForIPC() {
+  const briefingPath = latestBriefingPath();
+  if (!fs.existsSync(briefingPath)) {
+    return null;
+  }
+  return fs.readFileSync(briefingPath, 'utf8');
+}
+
+async function getActivitiesForIPC() {
+  try {
+    const result = await runRecall(['briefing']); // This reads DB but we need a dedicated query
+    // For now, use Python to query activities directly
+    const dbPath = path.join(recallDataDir(), 'recall.db');
+    if (!fs.existsSync(dbPath)) {
+      return [];
+    }
+    
+    // Query activities from database via Python
+    const queryResult = await runRecall(['query-activities']);
+    if (!queryResult) {
+      return [];
+    }
+    try {
+      return JSON.parse(queryResult);
+    } catch (e) {
+      console.error('Failed to parse activities JSON:', e);
+      return [];
+    }
+  } catch (error) {
+    console.error('Failed to get activities:', error);
+    return [];
+  }
+}
+
 function createTray() {
   const icon = nativeImage.createFromBuffer(Buffer.from(TRAY_ICON_PNG, 'base64'));
   icon.setTemplateImage(true);
@@ -348,6 +396,10 @@ function createTray() {
         click: openSettingsFile,
       },
       {
+        label: 'View briefing & activities',
+        click: openViewerWindow,
+      },
+      {
         label: 'Open local data folder (advanced)',
         click: () => shell.openPath(recallDataDir()),
       },
@@ -378,6 +430,10 @@ async function startBackgroundCapture() {
   appMonitorTimer = appMonitor.startMonitoring(APP_MONITOR_INTERVAL_MS);
   console.log(`[Recall] App monitor started (interval: ${APP_MONITOR_INTERVAL_MS}ms)`);
 }
+
+// Set up IPC handlers for the viewer window
+ipcMain.handle('get-briefing', getBriefingForIPC);
+ipcMain.handle('get-activities', getActivitiesForIPC);
 
 app.whenReady().then(async () => {
   app.setName(APP_NAME);
