@@ -79,6 +79,15 @@ class RecallStore:
     def external_id_exists(self, external_id: str) -> bool:
         return external_id_exists(external_id, path=self.db_path)
 
+    def start_session(self, *args, **kwargs) -> int:
+        return start_session(*args, path=self.db_path, **kwargs)
+
+    def end_session(self, *args, **kwargs):
+        return end_session(*args, path=self.db_path, **kwargs)
+
+    def recent_sessions(self, *args, **kwargs):
+        return recent_sessions(*args, path=self.db_path, **kwargs)
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
@@ -171,6 +180,27 @@ def init_db(path: Path | None = None) -> None:
         conn.execute(
             "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
             ("schema_version", str(SCHEMA_VERSION)),
+        )
+
+        # Sessions table for duration tracking
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                app_name TEXT,
+                title TEXT,
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                duration_seconds INTEGER,
+                metadata_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_sessions_started_at
+            ON sessions (started_at)
+            """
         )
 
 
@@ -304,3 +334,73 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, declaratio
     columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
     if column not in columns:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+
+
+def start_session(app_name: str | None = None, title: str | None = None, *, metadata: dict | None = None, started_at: datetime | None = None, path: Path | None = None) -> int:
+    init_db(path)
+    timestamp = (started_at or utc_now()).astimezone(UTC).isoformat()
+    with connection(path) as conn:
+        cursor = conn.execute(
+            "INSERT INTO sessions (app_name, title, started_at, metadata_json) VALUES (?, ?, ?, ?)",
+            (app_name, title, timestamp, json.dumps(metadata or {}, sort_keys=True)),
+        )
+        return int(cursor.lastrowid)
+
+
+def end_session(session_id: int | None = None, *, app_name: str | None = None, title: str | None = None, ended_at: datetime | None = None, metadata: dict | None = None, path: Path | None = None) -> int | None:
+    init_db(path)
+    timestamp = (ended_at or utc_now()).astimezone(UTC).isoformat()
+    with connection(path) as conn:
+        if session_id is not None:
+            row = conn.execute("SELECT id, started_at FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            if not row:
+                return None
+            started = _parse_timestamp(row["started_at"])
+            ended = _parse_timestamp(timestamp)
+            duration = int((ended - started).total_seconds())
+            conn.execute(
+                "UPDATE sessions SET ended_at = ?, duration_seconds = ?, metadata_json = ? WHERE id = ?",
+                (timestamp, duration, json.dumps(metadata or {}, sort_keys=True), session_id),
+            )
+            return session_id
+
+        # Find most recent open session for the app/title
+        row = conn.execute(
+            "SELECT id, started_at FROM sessions WHERE app_name = ? AND title = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
+            (app_name, title),
+        ).fetchone()
+        if not row:
+            return None
+        started = _parse_timestamp(row["started_at"])
+        ended = _parse_timestamp(timestamp)
+        duration = int((ended - started).total_seconds())
+        conn.execute(
+            "UPDATE sessions SET ended_at = ?, duration_seconds = ?, metadata_json = ? WHERE id = ?",
+            (timestamp, duration, json.dumps(metadata or {}, sort_keys=True), int(row["id"])),
+        )
+        return int(row["id"])
+
+
+def recent_sessions(since: datetime, until: datetime, limit: int = 100, path: Path | None = None) -> list[dict]:
+    init_db(path)
+    since_value = since.astimezone(UTC).isoformat()
+    until_value = until.astimezone(UTC).isoformat()
+    with connection(path) as conn:
+        rows = conn.execute(
+            "SELECT id, started_at, ended_at, app_name, title, duration_seconds, metadata_json FROM sessions WHERE started_at >= ? AND started_at <= ? ORDER BY started_at DESC LIMIT ?",
+            (since_value, until_value, limit),
+        ).fetchall()
+        result = []
+        for r in rows:
+            result.append(
+                {
+                    "id": int(r["id"]),
+                    "started_at": _parse_timestamp(r["started_at"]),
+                    "ended_at": _parse_timestamp(r["ended_at"]) if r["ended_at"] else None,
+                    "app_name": r["app_name"],
+                    "title": r["title"],
+                    "duration_seconds": r["duration_seconds"],
+                    "metadata": json.loads(r["metadata_json"] or "{}"),
+                }
+            )
+        return result

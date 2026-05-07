@@ -16,7 +16,9 @@ const fs = require('fs');
 class AppMonitor {
   constructor(projectRoot) {
     this.projectRoot = projectRoot;
-    this.lastApp = null;
+    // current active app key and session id
+    this.currentAppKey = null;
+    this.currentSessionId = null;
     this.recallExecutable = this._findRecallExecutable();
   }
 
@@ -243,6 +245,64 @@ get _w`;
   }
 
   /**
+   * Start a timed session for the given app
+   */
+  async logSessionStart(appName, windowTitle) {
+    return new Promise((resolve, reject) => {
+      const payload = JSON.stringify({
+        app_name: appName,
+        title: windowTitle || appName,
+        source: 'app-monitor',
+        occurred_at: new Date().toISOString(),
+        metadata: { action: 'start' },
+      });
+
+      const command = this.recallExecutable || 'python3';
+      const args = this.recallExecutable ? ['capture', 'session'] : ['-m', 'recall_ai.cli', 'capture', 'session'];
+
+      const child = spawn(command, args, { cwd: this.projectRoot, stdio: ['pipe', 'pipe', 'pipe'] });
+      let out = '';
+      let err = '';
+      child.stdout.on('data', (d) => (out += d.toString()));
+      child.stderr.on('data', (d) => (err += d.toString()));
+      child.on('close', (code) => {
+        if (code === 0) resolve(out.trim()); else reject(new Error(err));
+      });
+      child.stdin.write(payload);
+      child.stdin.end();
+    });
+  }
+
+  /**
+   * End the current session for an app
+   */
+  async logSessionEnd(appName, windowTitle) {
+    return new Promise((resolve, reject) => {
+      const payload = JSON.stringify({
+        app_name: appName,
+        title: windowTitle || appName,
+        source: 'app-monitor',
+        occurred_at: new Date().toISOString(),
+        metadata: { action: 'end' },
+      });
+
+      const command = this.recallExecutable || 'python3';
+      const args = this.recallExecutable ? ['capture', 'session'] : ['-m', 'recall_ai.cli', 'capture', 'session'];
+
+      const child = spawn(command, args, { cwd: this.projectRoot, stdio: ['pipe', 'pipe', 'pipe'] });
+      let out = '';
+      let err = '';
+      child.stdout.on('data', (d) => (out += d.toString()));
+      child.stderr.on('data', (d) => (err += d.toString()));
+      child.on('close', (code) => {
+        if (code === 0) resolve(out.trim()); else reject(new Error(err));
+      });
+      child.stdin.write(payload);
+      child.stdin.end();
+    });
+  }
+
+  /**
    * Start monitoring the active app
    * @param {number} intervalMs - Interval in milliseconds between checks
    * @returns {number} Timer ID for cleanup
@@ -257,13 +317,31 @@ get _w`;
 
         // Only log if the app changed
         const appKey = `${app.name}::${app.title}`;
-        if (this.lastApp === appKey) {
+        if (this.currentAppKey === appKey) {
           return;
         }
 
-        this.lastApp = appKey;
-        console.log(`[AppMonitor] Active app: ${app.name} - "${app.title}"`);
+        // End previous session if any
+        if (this.currentAppKey) {
+          const [prevName, prevTitle] = this.currentAppKey.split('::');
+          try {
+            await this.logSessionEnd(prevName, prevTitle);
+            console.log(`[AppMonitor] Ended session for: ${prevName} - "${prevTitle}"`);
+          } catch (e) {
+            console.error('[AppMonitor] Failed to end session:', e);
+          }
+        }
 
+        // Start new session
+        this.currentAppKey = appKey;
+        try {
+          await this.logSessionStart(app.name, app.title);
+          console.log(`[AppMonitor] Started session for: ${app.name} - "${app.title}"`);
+        } catch (e) {
+          console.error('[AppMonitor] Failed to start session:', e);
+        }
+
+        // Also log a regular activity event
         try {
           const eventId = await this.logAppActivity(app.name, app.title);
           console.log(`[AppMonitor] Logged event: ${eventId}`);
