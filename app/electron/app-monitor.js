@@ -42,13 +42,17 @@ class AppMonitor {
     if (activeWin) {
       try {
         const app = await activeWin({ screenRecordingPermission: false });
-        if (!app) return null;
+        if (!app) {
+          console.debug('[AppMonitor] active-win returned null (no active app)');
+          return null;
+        }
+        console.debug('[AppMonitor] active-win detected:', app.owner?.name, app.title);
         return {
           name: app.owner?.name || 'Unknown',
           title: app.title || '',
         };
       } catch (error) {
-        console.error('Error detecting active app with active-win:', error);
+        console.warn('[AppMonitor] active-win failed, falling back to AppleScript:', error.message);
         // fall through to fallback
       }
     }
@@ -67,22 +71,33 @@ get _w`;
 
         const appName = await new Promise((resolve) => {
           execFile('osascript', ['-e', getAppName], (err, stdout) => {
-            if (err) return resolve(null);
+            if (err) {
+              console.debug('[AppMonitor] osascript app name failed:', err.message);
+              return resolve(null);
+            }
             resolve(stdout.toString().trim());
           });
         });
+
+        if (!appName) {
+          console.debug('[AppMonitor] osascript returned no app name');
+          return null;
+        }
 
         const windowTitle = await new Promise((resolve) => {
           execFile('osascript', ['-e', getWindowTitle], (err, stdout) => {
-            if (err) return resolve('');
+            if (err) {
+              console.debug('[AppMonitor] osascript window title failed:', err.message);
+              return resolve('');
+            }
             resolve(stdout.toString().trim());
           });
         });
 
-        if (!appName) return null;
+        console.debug('[AppMonitor] osascript detected:', appName, windowTitle);
         return { name: appName, title: windowTitle || '' };
       } catch (error) {
-        console.error('macOS fallback failed to detect active app:', error);
+        console.error('[AppMonitor] macOS fallback failed:', error.message);
         return null;
       }
     }
@@ -142,25 +157,26 @@ get _w`;
   async listOpenApps() {
     if (process.platform === 'darwin') {
       // macOS: use System Events via osascript
-      // Build an AppleScript that emits one line per app in the form:
-      // AppName::Window1||Window2||Window3\n
+      // Get app names; window capture requires Accessibility permissions and may fail silently.
       const appleScript = `
         set outStr to ""
         tell application "System Events"
           set procs to every application process whose background only is false
           repeat with p in procs
             set appName to name of p
-            set wnames to {}
+            set wline to appName & "::"
             try
               set wnames to name of every window of p
+              if (count of wnames) > 0 then
+                repeat with i from 1 to count of wnames
+                  set wline to wline & (item i of wnames)
+                  if i < count of wnames then set wline to wline & "||"
+                end repeat
+              end if
+            on error errMsg
+              -- Window capture failed; just use app name (no windows)
+              set wline to appName & "::"
             end try
-            set wline to appName & "::"
-            if (count of wnames) > 0 then
-              repeat with i from 1 to count of wnames
-                set wline to wline & (item i of wnames)
-                if i < count of wnames then set wline to wline & "||"
-              end repeat
-            end if
             set outStr to outStr & wline & "\n"
           end repeat
         end tell
@@ -169,8 +185,12 @@ get _w`;
 
       try {
         const appsRaw = await new Promise((resolve) => {
-          execFile('osascript', ['-e', appleScript], (err, stdout) => {
-            if (err) return resolve('');
+          execFile('osascript', ['-e', appleScript], (err, stdout, stderr) => {
+            if (err) {
+              console.warn('[AppMonitor] osascript error:', err.message);
+              if (stderr) console.warn('[AppMonitor] osascript stderr:', stderr);
+              return resolve('');
+            }
             resolve(stdout.toString().trim());
           });
         });
@@ -332,10 +352,12 @@ get _w`;
    * @returns {number} Timer ID for cleanup
    */
   startMonitoring(intervalMs = 10000) {
+    console.log(`[AppMonitor] Starting monitor (interval: ${intervalMs}ms)`);
     return setInterval(async () => {
       try {
         const app = await this.getActiveApp();
         if (!app) {
+          console.debug('[AppMonitor] No active app detected');
           return;
         }
 
@@ -345,6 +367,8 @@ get _w`;
           return;
         }
 
+        console.log(`[AppMonitor] App changed: ${app.name} - "${app.title}"`);
+
         // End previous session if any
         if (this.currentAppKey) {
           const [prevName, prevTitle] = this.currentAppKey.split('::');
@@ -352,7 +376,7 @@ get _w`;
             await this.logSessionEnd(prevName, prevTitle);
             console.log(`[AppMonitor] Ended session for: ${prevName} - "${prevTitle}"`);
           } catch (e) {
-            console.error('[AppMonitor] Failed to end session:', e);
+            console.error('[AppMonitor] Failed to end session:', e.message);
           }
         }
 
@@ -362,18 +386,18 @@ get _w`;
           await this.logSessionStart(app.name, app.title);
           console.log(`[AppMonitor] Started session for: ${app.name} - "${app.title}"`);
         } catch (e) {
-          console.error('[AppMonitor] Failed to start session:', e);
+          console.error('[AppMonitor] Failed to start session:', e.message);
         }
 
         // Also log a regular activity event
         try {
           const eventId = await this.logAppActivity(app.name, app.title);
-          console.log(`[AppMonitor] Logged event: ${eventId}`);
+          console.log(`[AppMonitor] Logged app activity: ${eventId}`);
         } catch (error) {
-          console.error('[AppMonitor] Failed to log activity:', error);
+          console.error('[AppMonitor] Failed to log activity:', error.message);
         }
       } catch (error) {
-        console.error('[AppMonitor] Monitor error:', error);
+        console.error('[AppMonitor] Monitor error:', error.message);
       }
     }, intervalMs);
   }
