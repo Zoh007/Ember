@@ -62,12 +62,13 @@ class AppMonitor {
     if (process.platform === 'darwin') {
       try {
         const getAppName = 'tell application "System Events" to get name of first application process whose frontmost is true';
-        const getWindowTitle = `tell application "System Events" to tell first application process whose frontmost is true to try
-  set _w to name of front window
+        const getWindowTitle = `try
+  tell application (tell application "System Events" to get name of first application process whose frontmost is true)
+    get name of front window
+  end tell
 on error
-  set _w to ""
-end try
-get _w`;
+  return ""
+end try`;
 
         const appName = await new Promise((resolve) => {
           execFile('osascript', ['-e', getAppName], (err, stdout) => {
