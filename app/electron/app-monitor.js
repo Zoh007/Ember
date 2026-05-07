@@ -88,6 +88,8 @@ end try`;
           return null;
         }
 
+        // Generic front window title retrieval; avoids app-specific scripts so
+        // it works across all applications that expose a front window name.
         const windowTitle = await new Promise((resolve) => {
           execFile('osascript', ['-e', getWindowTitle], (err, stdout) => {
             if (err) {
