@@ -92,8 +92,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "query-activities":
         store.initialize()
         target_date = _parse_date(args.target_date) if args.target_date else date.today()
-        activities = store.activities_between(*_day_bounds(target_date))
-        activities_json = [
+        since, until = _day_bounds(target_date)
+        activities = store.activities_between(since, until)
+        sessions = store.recent_sessions(since, until)
+        combined_rows: list[dict[str, Any]] = [
             {
                 "id": a.id,
                 "kind": a.kind,
@@ -107,7 +109,26 @@ def main(argv: list[str] | None = None) -> int:
             }
             for a in activities
         ]
-        print(json.dumps(activities_json))
+        combined_rows.extend(
+            {
+                "id": s["id"],
+                "kind": "session",
+                "occurred_at": s["started_at"].isoformat(),
+                "source": "session-tracker",
+                "app_name": s["app_name"],
+                "title": s["title"],
+                "content": "",
+                "url": None,
+                "metadata": {
+                    "ended_at": s["ended_at"].isoformat() if s["ended_at"] else None,
+                    "duration_seconds": s["duration_seconds"],
+                    **(s["metadata"] or {}),
+                },
+            }
+            for s in sessions
+        )
+        combined_rows.sort(key=lambda row: row["occurred_at"])
+        print(json.dumps(combined_rows))
         return 0
 
     if args.command == "capture-screen":

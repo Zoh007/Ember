@@ -332,14 +332,6 @@ async function getBriefingForIPC() {
 
 async function getActivitiesForIPC() {
   try {
-    const result = await runRecall(['briefing']); // This reads DB but we need a dedicated query
-    // For now, use Python to query activities directly
-    const dbPath = path.join(recallDataDir(), 'recall.db');
-    if (!fs.existsSync(dbPath)) {
-      return [];
-    }
-    
-    // Query activities from database via Python
     const queryResult = await runRecall(['query-activities']);
     if (!queryResult) {
       return [];
