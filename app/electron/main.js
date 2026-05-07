@@ -1,4 +1,15 @@
-const { app, Tray, Menu, nativeImage, Notification, clipboard, desktopCapturer, shell, BrowserWindow, ipcMain } = require('electron');
+const { app, Tray, Menu, nativeImage, Notification, clipboard, desktopCapturer, shell, BrowserWindow, ipcMain, systemPreferences } = require('electron');
+
+// Quick check for macOS Accessibility trust. Prints `true` if the current
+// running process is trusted for Accessibility; `false` otherwise.
+app.whenReady().then(() => {
+  try {
+    const trusted = systemPreferences.isTrustedAccessibilityClient(false);
+    console.log('Accessibility permission:', trusted);
+  } catch (e) {
+    console.error('Accessibility permission check failed:', e && e.message ? e.message : e);
+  }
+});
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
