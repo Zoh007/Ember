@@ -392,17 +392,17 @@ function createTray() {
               return;
             }
             const app = await appMonitor.getActiveApp();
-            if (app) {
-              new Notification({
-                title: APP_NAME,
-                body: `Active app: ${app.name}\nWindow: ${app.title}`,
-              }).show();
-            } else {
-              new Notification({
-                title: APP_NAME,
-                body: 'Could not detect active app. Check System Preferences > Security & Privacy > Accessibility.',
-              }).show();
-            }
+            const out = {
+              timestamp: new Date().toISOString(),
+              activeApp: app,
+              detected: app !== null,
+              note: app ? 'Active app detection is working.' : 'Could not detect active app. Check System Preferences > Security & Privacy > Accessibility.',
+            };
+
+            fs.mkdirSync(recallDataDir(), { recursive: true });
+            const outPath = path.join(recallDataDir(), `test-active-app-${timestampForFilename()}.json`);
+            fs.writeFileSync(outPath, JSON.stringify(out, null, 2), 'utf8');
+            await shell.openPath(outPath);
           } catch (e) {
             new Notification({ title: APP_NAME, body: `Test failed: ${e.message}` }).show();
           }
