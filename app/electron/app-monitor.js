@@ -142,27 +142,51 @@ get _w`;
   async listOpenApps() {
     if (process.platform === 'darwin') {
       // macOS: use System Events via osascript
-      const scriptGetApps = 'tell application "System Events" to get name of every application process whose background only is false';
-      const scriptGetWindows = `tell application "System Events" to tell every application process whose background only is false to get {name, (name of windows)}`;
+      // Build an AppleScript that emits one line per app in the form:
+      // AppName::Window1||Window2||Window3\n
+      const appleScript = `
+        set outStr to ""
+        tell application "System Events"
+          set procs to every application process whose background only is false
+          repeat with p in procs
+            set appName to name of p
+            set wnames to {}
+            try
+              set wnames to name of every window of p
+            end try
+            set wline to appName & "::"
+            if (count of wnames) > 0 then
+              repeat with i from 1 to count of wnames
+                set wline to wline & (item i of wnames)
+                if i < count of wnames then set wline to wline & "||"
+              end repeat
+            end if
+            set outStr to outStr & wline & "\n"
+          end repeat
+        end tell
+        return outStr
+      `;
+
       try {
         const appsRaw = await new Promise((resolve) => {
-          execFile('osascript', ['-e', scriptGetApps], (err, stdout) => {
+          execFile('osascript', ['-e', appleScript], (err, stdout) => {
             if (err) return resolve('');
             resolve(stdout.toString().trim());
           });
         });
 
-        const windowsRaw = await new Promise((resolve) => {
-          execFile('osascript', ['-e', scriptGetWindows], (err, stdout) => {
-            if (err) return resolve('');
-            resolve(stdout.toString().trim());
-          });
-        });
-
-        const names = appsRaw ? appsRaw.split(', ') : [];
-        // windowsRaw isn't strictly structured; return names with empty windows for simplicity
-        return names.map((n) => ({ name: n, windows: [] }));
+        if (!appsRaw) return [];
+        const lines = appsRaw.split('\n').filter(Boolean);
+        const result = [];
+        for (const line of lines) {
+          const parts = line.split('::');
+          const name = parts[0] || 'Unknown';
+          const windows = parts[1] ? parts[1].split('||').filter(Boolean) : [];
+          result.push({ name: name, windows: windows });
+        }
+        return result;
       } catch (e) {
+        console.error('macOS app-list AppleScript failed:', e);
         return [];
       }
     }

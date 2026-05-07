@@ -127,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
             }
             for s in sessions
         )
-        combined_rows.sort(key=lambda row: row["occurred_at"])
+        combined_rows.sort(key=lambda row: row["occurred_at"], reverse=True)
         print(json.dumps(combined_rows))
         return 0
 

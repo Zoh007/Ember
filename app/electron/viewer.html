@@ -129,6 +129,34 @@
       gap: 15px;
     }
 
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .summary-card {
+      border: 1px solid #e1e4e8;
+      border-radius: 10px;
+      padding: 14px;
+      background: #fbfcfe;
+    }
+
+    .summary-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #667;
+      margin-bottom: 6px;
+    }
+
+    .summary-value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1f2937;
+    }
+
     .activity-card {
       border: 1px solid #e1e4e8;
       border-radius: 8px;
@@ -257,6 +285,7 @@
           <button class="filter-button" onclick="filterByKind('window')">Windows</button>
           <button class="filter-button" onclick="filterByKind('clipboard')">Clipboard</button>
         </div>
+        <div class="summary-grid" id="activity-summary"></div>
         <div class="activities-grid" id="activities-list">
           <div class="loading">Loading activities...</div>
         </div>
@@ -302,6 +331,8 @@
         ? allActivities.filter((a) => a.kind === currentFilter)
         : allActivities;
 
+      renderSummary(filtered);
+
       if (filtered.length === 0) {
         document.querySelector('#activities-list').innerHTML =
           '<div class="empty-state"><p>No activities found.</p></div>';
@@ -313,6 +344,41 @@
         .join('');
     }
 
+    function renderSummary(rows) {
+      const counts = rows.reduce((acc, row) => {
+        acc[row.kind] = (acc[row.kind] || 0) + 1;
+        return acc;
+      }, {});
+
+      const latestApp = rows.find((row) => row.kind === 'app' || row.kind === 'session');
+      const cards = [
+        { label: 'Total', value: rows.length },
+        { label: 'Apps', value: counts.app || 0 },
+        { label: 'Sessions', value: counts.session || 0 },
+        { label: 'Snapshots', value: counts['app-list'] || 0 },
+        { label: 'Clipboard', value: counts.clipboard || 0 },
+      ];
+
+      document.querySelector('#activity-summary').innerHTML = `
+        ${cards
+          .map(
+            (card) => `
+              <div class="summary-card">
+                <div class="summary-label">${card.label}</div>
+                <div class="summary-value">${card.value}</div>
+              </div>
+            `,
+          )
+          .join('')}
+        ${latestApp ? `
+          <div class="summary-card" style="grid-column: 1 / -1;">
+            <div class="summary-label">Latest app or session</div>
+            <div class="summary-value" style="font-size: 18px;">${escapeHtml(latestApp.app_name || latestApp.title || latestApp.kind)}</div>
+          </div>
+        ` : ''}
+      `;
+    }
+
     function createActivityCard(activity) {
       const date = new Date(activity.occurred_at);
       const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -320,11 +386,18 @@
         activity.kind === 'session' && activity.metadata?.duration_seconds
           ? ` • ${formatDuration(activity.metadata.duration_seconds)}`
           : '';
+      const kindLabel = {
+        app: 'App focus',
+        session: 'Session',
+        'app-list': 'Open apps',
+        window: 'Window',
+        clipboard: 'Clipboard',
+      }[activity.kind] || activity.kind;
 
       return `
         <div class="activity-card">
           <div class="activity-header">
-            <span class="activity-kind kind-${activity.kind}">${activity.kind}</span>
+            <span class="activity-kind kind-${activity.kind}">${kindLabel}</span>
             <span class="activity-time">${timeStr}${durationStr}</span>
           </div>
           ${activity.title ? `<div class="activity-title">${escapeHtml(activity.title)}</div>` : ''}
@@ -377,6 +450,8 @@
 
     // Load briefing on start
     loadBriefing();
+    // Also load activities so the Activities tab is populated immediately
+    loadActivities();
   </script>
 </body>
 </html>
