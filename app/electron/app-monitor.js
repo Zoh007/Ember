@@ -1,5 +1,12 @@
-const activeWin = require('active-win');
-const { spawn } = require('child_process');
+let activeWin = null;
+try {
+  // Try to require the native module; if it fails (packaged binary ABI mismatch),
+  // we'll fall back to a macOS-only AppleScript approach below.
+  activeWin = require('active-win');
+} catch (e) {
+  activeWin = null;
+}
+const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -29,19 +36,56 @@ class AppMonitor {
    * Get the currently focused app
    */
   async getActiveApp() {
-    try {
-      const app = await activeWin({ screenRecordingPermission: false });
-      if (!app) {
+    // If the native `active-win` module loaded successfully, prefer it.
+    if (activeWin) {
+      try {
+        const app = await activeWin({ screenRecordingPermission: false });
+        if (!app) return null;
+        return {
+          name: app.owner?.name || 'Unknown',
+          title: app.title || '',
+        };
+      } catch (error) {
+        console.error('Error detecting active app with active-win:', error);
+        // fall through to fallback
+      }
+    }
+
+    // Fallback: macOS-only AppleScript via `osascript`. This avoids loading
+    // native node modules in the packaged app and works without rebuilding.
+    if (process.platform === 'darwin') {
+      try {
+        const getAppName = 'tell application "System Events" to get name of first application process whose frontmost is true';
+        const getWindowTitle = `tell application "System Events" to tell first application process whose frontmost is true to try
+  set _w to name of front window
+on error
+  set _w to ""
+end try
+get _w`;
+
+        const appName = await new Promise((resolve) => {
+          execFile('osascript', ['-e', getAppName], (err, stdout) => {
+            if (err) return resolve(null);
+            resolve(stdout.toString().trim());
+          });
+        });
+
+        const windowTitle = await new Promise((resolve) => {
+          execFile('osascript', ['-e', getWindowTitle], (err, stdout) => {
+            if (err) return resolve('');
+            resolve(stdout.toString().trim());
+          });
+        });
+
+        if (!appName) return null;
+        return { name: appName, title: windowTitle || '' };
+      } catch (error) {
+        console.error('macOS fallback failed to detect active app:', error);
         return null;
       }
-      return {
-        name: app.owner?.name || 'Unknown',
-        title: app.title || '',
-      };
-    } catch (error) {
-      console.error('Error detecting active app:', error);
-      return null;
     }
+
+    return null;
   }
 
   /**

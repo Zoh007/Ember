@@ -6,9 +6,10 @@
   "scripts": {
     "start": "electron .",
     "build:python": "node scripts/build-python.js",
-    "package": "npm run build:python && electron-builder --dir",
-    "package:installer": "npm run build:python && electron-builder --publish=never",
-    "release": "npm run build:python && electron-builder --publish=always",
+    "rebuild-native": "electron-rebuild -f -w active-win",
+    "package": "npm run build:python && npm run rebuild-native && electron-builder --dir",
+    "package:installer": "npm run build:python && npm run rebuild-native && electron-builder --publish=never",
+    "release": "npm run build:python && npm run rebuild-native && electron-builder --publish=always",
     "briefing": "python3 -m recall_ai.cli briefing",
     "init-db": "python3 -m recall_ai.cli init-db",
     "test": "python -m unittest discover -s tests"
@@ -25,12 +26,13 @@
   "private": true,
   "dependencies": {
     "@tesseract.js-data/eng": "latest",
-    "tesseract.js": "latest",
-    "active-win": "latest"
+    "active-win": "latest",
+    "tesseract.js": "latest"
   },
   "devDependencies": {
     "electron": "latest",
-    "electron-builder": "latest"
+    "electron-builder": "latest",
+    "electron-rebuild": "^2.3.5"
   },
   "build": {
     "appId": "com.recall.desktop",
