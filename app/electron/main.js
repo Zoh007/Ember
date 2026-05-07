@@ -384,6 +384,40 @@ function createTray() {
         },
       },
       {
+        label: 'Debug capture',
+        click: async () => {
+          try {
+            if (!appMonitor) {
+              new Notification({ title: APP_NAME, body: 'App monitor not initialized.' }).show();
+              return;
+            }
+            const apps = await appMonitor.listOpenApps();
+            let activities = [];
+            try {
+              const q = await runRecall(['query-activities']);
+              activities = q ? JSON.parse(q) : [];
+            } catch (err) {
+              console.error('Query activities failed:', err.message);
+            }
+
+            const out = {
+              timestamp: new Date().toISOString(),
+              apps: apps,
+              activities_count: activities.length,
+              activities: activities.slice(0, 200),
+            };
+
+            fs.mkdirSync(recallDataDir(), { recursive: true });
+            const outPath = path.join(recallDataDir(), `debug-capture-${timestampForFilename()}.json`);
+            fs.writeFileSync(outPath, JSON.stringify(out, null, 2), 'utf8');
+            await shell.openPath(outPath);
+            new Notification({ title: APP_NAME, body: `Debug capture saved (${activities.length} activities).` }).show();
+          } catch (e) {
+            new Notification({ title: APP_NAME, body: `Debug capture failed: ${e.message}` }).show();
+          }
+        },
+      },
+      {
         label: 'Open settings',
         click: openSettingsFile,
       },
