@@ -41,16 +41,14 @@ class AppMonitor {
     // If the native `active-win` module loaded successfully, prefer it.
     if (activeWin) {
       try {
-        const app = await activeWin({ screenRecordingPermission: false });
-        if (!app) {
-          console.debug('[AppMonitor] active-win returned null (no active app)');
-          return null;
+        // Call active-win with default options. In many environments this
+        // returns `{ owner: { name }, title }` which is ideal for our use.
+        const win = await activeWin();
+        if (win && (win.owner?.name || win.title)) {
+          console.debug('[AppMonitor] active-win detected:', win.owner?.name, win.title);
+          return { name: win.owner?.name || 'Unknown', title: win.title || '' };
         }
-        console.debug('[AppMonitor] active-win detected:', app.owner?.name, app.title);
-        return {
-          name: app.owner?.name || 'Unknown',
-          title: app.title || '',
-        };
+        console.debug('[AppMonitor] active-win returned no useful data');
       } catch (error) {
         console.warn('[AppMonitor] active-win failed, falling back to AppleScript:', error.message);
         // fall through to fallback
