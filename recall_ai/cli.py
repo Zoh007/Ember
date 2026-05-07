@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("init-db", help="Create or migrate the local database")
 
     capture_parser = subparsers.add_parser("capture", help="Capture an activity event from stdin JSON")
-    capture_parser.add_argument("kind", choices=["window", "clipboard", "calendar", "document", "screen"])
+    capture_parser.add_argument("kind", choices=["window", "clipboard", "calendar", "document", "screen", "app"])
 
     calendar_parser = subparsers.add_parser(
         "import-calendar",
@@ -96,6 +96,12 @@ def _activity_from_payload(kind: str, payload: dict[str, Any]) -> ActivityInput:
     metadata = payload.get("metadata") or {}
     if not isinstance(metadata, dict):
         metadata = {"value": metadata}
+
+    # For app monitoring, capture window title in metadata
+    if kind == "app":
+        window_title = payload.get("window_title")
+        if isinstance(window_title, str):
+            metadata["window_title"] = window_title
 
     return ActivityInput(
         kind=kind,

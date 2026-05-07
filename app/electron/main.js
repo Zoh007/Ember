@@ -4,12 +4,14 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { extractScreenText } = require('./ocr');
+const { AppMonitor } = require('./app-monitor');
 
 const APP_NAME = 'Recall';
 const CAPTURE_INTERVAL_MS = Number(process.env.RECALL_CAPTURE_INTERVAL_MS || 30_000);
 const CLIPBOARD_INTERVAL_MS = Number(process.env.RECALL_CLIPBOARD_INTERVAL_MS || 5_000);
 const CALENDAR_INTERVAL_MS = Number(process.env.RECALL_CALENDAR_INTERVAL_MS || 15 * 60_000);
 const SCREEN_CAPTURE_INTERVAL_MS = Number(process.env.RECALL_SCREEN_CAPTURE_INTERVAL_MS || 2 * 60_000);
+const APP_MONITOR_INTERVAL_MS = Number(process.env.RECALL_APP_MONITOR_INTERVAL_MS || 10_000);
 const SCREEN_CAPTURE_ENABLED = process.env.RECALL_SCREEN_CAPTURE !== '0';
 const PYTHON_BIN = process.env.RECALL_PYTHON || 'python3';
 const TRAY_ICON_PNG =
@@ -20,6 +22,8 @@ let captureTimer = null;
 let clipboardTimer = null;
 let calendarTimer = null;
 let screenTimer = null;
+let appMonitorTimer = null;
+let appMonitor = null;
 let lastClipboardText = '';
 
 function projectRoot() {
@@ -352,6 +356,11 @@ async function startBackgroundCapture() {
   clipboardTimer = setInterval(captureClipboardActivity, CLIPBOARD_INTERVAL_MS);
   calendarTimer = setInterval(captureCalendarActivity, CALENDAR_INTERVAL_MS);
   screenTimer = setInterval(captureScreenActivity, SCREEN_CAPTURE_INTERVAL_MS);
+
+  // Start app activity monitor
+  appMonitor = new AppMonitor(projectRoot());
+  appMonitorTimer = appMonitor.startMonitoring(APP_MONITOR_INTERVAL_MS);
+  console.log(`[Recall] App monitor started (interval: ${APP_MONITOR_INTERVAL_MS}ms)`);
 }
 
 app.whenReady().then(async () => {
@@ -376,5 +385,8 @@ app.on('before-quit', () => {
   }
   if (screenTimer) {
     clearInterval(screenTimer);
+  }
+  if (appMonitorTimer) {
+    appMonitor.stopMonitoring(appMonitorTimer);
   }
 });
