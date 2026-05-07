@@ -134,6 +134,115 @@ get _w`;
   }
 
   /**
+   * List all open applications (cross-platform).
+   * Returns an array of { name: string, windows: string[] }
+   */
+  async listOpenApps() {
+    if (process.platform === 'darwin') {
+      // macOS: use System Events via osascript
+      const scriptGetApps = 'tell application "System Events" to get name of every application process whose background only is false';
+      const scriptGetWindows = `tell application "System Events" to tell every application process whose background only is false to get {name, (name of windows)}`;
+      try {
+        const appsRaw = await new Promise((resolve) => {
+          execFile('osascript', ['-e', scriptGetApps], (err, stdout) => {
+            if (err) return resolve('');
+            resolve(stdout.toString().trim());
+          });
+        });
+
+        const windowsRaw = await new Promise((resolve) => {
+          execFile('osascript', ['-e', scriptGetWindows], (err, stdout) => {
+            if (err) return resolve('');
+            resolve(stdout.toString().trim());
+          });
+        });
+
+        const names = appsRaw ? appsRaw.split(', ') : [];
+        // windowsRaw isn't strictly structured; return names with empty windows for simplicity
+        return names.map((n) => ({ name: n, windows: [] }));
+      } catch (e) {
+        return [];
+      }
+    }
+
+    if (process.platform === 'win32') {
+      // Windows: use PowerShell to list processes with MainWindowTitle
+      try {
+        const out = await new Promise((resolve) => {
+          const ps = spawn('powershell', ['-NoProfile', '-Command', "Get-Process | Where-Object { $_.MainWindowTitle } | Select-Object ProcessName,MainWindowTitle | ConvertTo-Json"], { timeout: 5000 });
+          let stdout = '';
+          ps.stdout.on('data', (d) => (stdout += d.toString()));
+          ps.on('close', () => resolve(stdout));
+        });
+        const parsed = out ? JSON.parse(out) : [];
+        const rows = Array.isArray(parsed) ? parsed : [parsed];
+        return rows.map((r) => ({ name: r.ProcessName || r.processName, windows: [r.MainWindowTitle || ''] }));
+      } catch (e) {
+        return [];
+      }
+    }
+
+    // Linux/X11: use `wmctrl -l` if available
+    if (process.platform === 'linux') {
+      try {
+        const out = await new Promise((resolve) => {
+          const p = spawn('wmctrl', ['-l'], { timeout: 3000 });
+          let stdout = '';
+          p.stdout.on('data', (d) => (stdout += d.toString()));
+          p.on('close', () => resolve(stdout));
+        });
+        const lines = out.trim().split('\n').filter(Boolean);
+        const apps = {};
+        for (const l of lines) {
+          const parts = l.split(/\s+/).slice(3);
+          const title = parts.join(' ');
+          const app = title.split(' - ')[0] || title;
+          apps[app] = apps[app] || new Set();
+          apps[app].add(title);
+        }
+        return Object.keys(apps).map((k) => ({ name: k, windows: Array.from(apps[k]) }));
+      } catch (e) {
+        return [];
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * Log a snapshot of open apps to the DB via Python CLI
+   */
+  async logAppList() {
+    try {
+      const apps = await this.listOpenApps();
+      const payload = JSON.stringify({
+        source: 'app-monitor',
+        occurred_at: new Date().toISOString(),
+        apps,
+      });
+
+      const command = this.recallExecutable || 'python3';
+      const args = this.recallExecutable ? ['capture', 'app-list'] : ['-m', 'recall_ai.cli', 'capture', 'app-list'];
+
+      return await new Promise((resolve, reject) => {
+        const child = spawn(command, args, { cwd: this.projectRoot, stdio: ['pipe', 'pipe', 'pipe'] });
+        let out = '';
+        let err = '';
+        child.stdout.on('data', (d) => (out += d.toString()));
+        child.stderr.on('data', (d) => (err += d.toString()));
+        child.on('close', (code) => {
+          if (code === 0) resolve(out.trim()); else reject(new Error(err));
+        });
+        child.stdin.write(payload);
+        child.stdin.end();
+      });
+    } catch (e) {
+      console.error('Failed to log app list:', e);
+      return null;
+    }
+  }
+
+  /**
    * Start monitoring the active app
    * @param {number} intervalMs - Interval in milliseconds between checks
    * @returns {number} Timer ID for cleanup

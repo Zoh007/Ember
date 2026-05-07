@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("init-db", help="Create or migrate the local database")
 
     capture_parser = subparsers.add_parser("capture", help="Capture an activity event from stdin JSON")
-    capture_parser.add_argument("kind", choices=["window", "clipboard", "calendar", "document", "screen", "app"])
+    capture_parser.add_argument("kind", choices=["window", "clipboard", "calendar", "document", "screen", "app", "app-list"])
 
     calendar_parser = subparsers.add_parser(
         "import-calendar",
@@ -102,6 +102,14 @@ def _activity_from_payload(kind: str, payload: dict[str, Any]) -> ActivityInput:
         window_title = payload.get("window_title")
         if isinstance(window_title, str):
             metadata["window_title"] = window_title
+
+    # For app-list snapshots, include the apps array in metadata
+    if kind == "app-list":
+        apps = payload.get("apps")
+        if isinstance(apps, list):
+            metadata["apps"] = apps
+        # set a friendly title
+        payload.setdefault("title", "Open applications snapshot")
 
     return ActivityInput(
         kind=kind,

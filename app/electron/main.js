@@ -328,6 +328,22 @@ function createTray() {
         click: () => captureScreenActivity({ notify: true }),
       },
       {
+        label: 'Snapshot open apps',
+        click: async () => {
+          try {
+            if (!appMonitor) {
+              new Notification({ title: APP_NAME, body: 'App monitor not initialized.' }).show();
+              return;
+            }
+            const result = await appMonitor.logAppList();
+            const parsed = result ? result.trim() : '';
+            new Notification({ title: APP_NAME, body: parsed ? 'Open apps snapshot saved.' : 'Snapshot completed.' }).show();
+          } catch (e) {
+            new Notification({ title: APP_NAME, body: `Snapshot failed: ${e.message}` }).show();
+          }
+        },
+      },
+      {
         label: 'Open settings',
         click: openSettingsFile,
       },
