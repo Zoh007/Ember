@@ -1,11 +1,7 @@
 let activeWin = null;
-try {
-  // Try to require the native module; if it fails (packaged binary ABI mismatch),
-  // we'll fall back to a macOS-only AppleScript approach below.
-  activeWin = require('active-win');
-} catch (e) {
-  activeWin = null;
-}
+// `active-win` is ESM-only in recent versions. We don't `require()` it at
+// module load time to avoid ERR_REQUIRE_ESM; instead we attempt a dynamic
+// `import()` inside `getActiveApp()` when running on macOS.
 const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -38,6 +34,15 @@ class AppMonitor {
    * Get the currently focused app
    */
   async getActiveApp() {
+    // Attempt dynamic import of `active-win` if available and not yet loaded.
+    if (!activeWin) {
+      try {
+        const imported = await import('active-win');
+        activeWin = imported.default || imported;
+      } catch (e) {
+        console.debug('[AppMonitor] dynamic import active-win failed:', e?.message || e);
+      }
+    }
     // If the native `active-win` module loaded successfully, prefer it.
     if (activeWin) {
       try {
