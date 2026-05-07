@@ -384,6 +384,31 @@ function createTray() {
         },
       },
       {
+        label: 'Test active app detection',
+        click: async () => {
+          try {
+            if (!appMonitor) {
+              new Notification({ title: APP_NAME, body: 'App monitor not initialized.' }).show();
+              return;
+            }
+            const app = await appMonitor.getActiveApp();
+            if (app) {
+              new Notification({
+                title: APP_NAME,
+                body: `Active app: ${app.name}\nWindow: ${app.title}`,
+              }).show();
+            } else {
+              new Notification({
+                title: APP_NAME,
+                body: 'Could not detect active app. Check System Preferences > Security & Privacy > Accessibility.',
+              }).show();
+            }
+          } catch (e) {
+            new Notification({ title: APP_NAME, body: `Test failed: ${e.message}` }).show();
+          }
+        },
+      },
+      {
         label: 'Debug capture',
         click: async () => {
           try {
