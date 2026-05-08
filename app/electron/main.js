@@ -1,4 +1,4 @@
-const { app, Tray, Menu, nativeImage, Notification, clipboard, desktopCapturer, shell, BrowserWindow, ipcMain, systemPreferences, dialog } = require('electron');
+const { app, Tray, Menu, nativeImage, Notification, clipboard, desktopCapturer, shell, BrowserWindow, ipcMain, systemPreferences } = require('electron');
 
 // Quick check for macOS Accessibility trust. Prints `true` if the current
 // running process is trusted for Accessibility; `false` otherwise.
@@ -36,6 +36,86 @@ let screenTimer = null;
 let appMonitorTimer = null;
 let appMonitor = null;
 let lastClipboardText = '';
+let testResultWindow = null;
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function showTestResultWindow(payload) {
+  const detail = JSON.stringify(payload, null, 2);
+  const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Active App Detection Result</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      .wrap {
+        padding: 16px;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 14px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #93c5fd;
+      }
+      pre {
+        margin: 0;
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid #334155;
+        background: #020617;
+        white-space: pre-wrap;
+        word-break: break-word;
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Test active app detection result</h1>
+      <pre>${escapeHtml(detail)}</pre>
+    </div>
+  </body>
+</html>`;
+
+  if (testResultWindow && !testResultWindow.isDestroyed()) {
+    testResultWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(html)}`);
+    testResultWindow.show();
+    testResultWindow.focus();
+    return;
+  }
+
+  testResultWindow = new BrowserWindow({
+    width: 760,
+    height: 560,
+    title: 'Active App Detection Result',
+    autoHideMenuBar: true,
+    alwaysOnTop: true,
+    webPreferences: {
+      contextIsolation: true,
+    },
+  });
+
+  testResultWindow.on('closed', () => {
+    testResultWindow = null;
+  });
+
+  testResultWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(html)}`);
+  testResultWindow.show();
+  testResultWindow.focus();
+}
 
 function projectRoot() {
   return path.resolve(__dirname, '..', '..');
@@ -410,14 +490,7 @@ function createTray() {
               note: app ? 'Active app detection is working.' : 'Could not detect active app. Check System Preferences > Security & Privacy > Accessibility.',
             };
 
-            await dialog.showMessageBox({
-              type: 'info',
-              title: 'Active App Detection',
-              message: 'Test active app detection result',
-              detail: JSON.stringify(out, null, 2),
-              buttons: ['OK'],
-              noLink: true,
-            });
+            showTestResultWindow(out);
           } catch (e) {
             new Notification({ title: APP_NAME, body: `Test failed: ${e.message}` }).show();
           }
