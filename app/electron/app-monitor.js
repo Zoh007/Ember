@@ -1,7 +1,3 @@
-let activeWin = null;
-// `active-win` is ESM-only in recent versions. We don't `require()` it at
-// module load time to avoid ERR_REQUIRE_ESM; instead we attempt a dynamic
-// `import()` inside `getActiveApp()` when running on macOS.
 const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');

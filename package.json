@@ -6,10 +6,9 @@
   "scripts": {
     "start": "electron .",
     "build:python": "node scripts/build-python.js",
-    "rebuild-native": "electron-rebuild -f -w active-win",
-    "package": "npm run build:python && npm run rebuild-native && electron-builder --dir",
-    "package:installer": "npm run build:python && npm run rebuild-native && electron-builder --publish=never",
-    "release": "npm run build:python && npm run rebuild-native && electron-builder --publish=always",
+    "package": "npm run build:python && electron-builder --dir",
+    "package:installer": "npm run build:python && electron-builder --publish=never",
+    "release": "npm run build:python && electron-builder --publish=always",
     "briefing": "python3 -m recall_ai.cli briefing",
     "init-db": "python3 -m recall_ai.cli init-db",
     "test": "python -m unittest discover -s tests"
@@ -26,7 +25,6 @@
   "private": true,
   "dependencies": {
     "@tesseract.js-data/eng": "latest",
-    "active-win": "latest",
     "tesseract.js": "latest"
   },
   "devDependencies": {
