@@ -488,7 +488,7 @@ async function startBackgroundCapture() {
   screenTimer = setInterval(captureScreenActivity, SCREEN_CAPTURE_INTERVAL_MS);
 
   // Start app activity monitor
-  appMonitor = new AppMonitor(projectRoot());
+  appMonitor = new AppMonitor(projectRoot(), recallDataDir());
   appMonitorTimer = appMonitor.startMonitoring(APP_MONITOR_INTERVAL_MS);
   console.log(`[Recall] App monitor started (interval: ${APP_MONITOR_INTERVAL_MS}ms)`);
 }

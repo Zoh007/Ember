@@ -10,8 +10,9 @@ const fs = require('fs');
  * Monitor the active application and log to SQLite
  */
 class AppMonitor {
-  constructor(projectRoot) {
+  constructor(projectRoot, recallDataDir) {
     this.projectRoot = projectRoot;
+    this.recallDataDir = recallDataDir;
     // current active app key and session id
     this.currentAppKey = null;
     this.currentSessionId = null;
@@ -136,8 +137,7 @@ end try`;
    */
   _writeDebugLog(debugLog) {
     try {
-      const dataDir = require('electron').app.getPath('userData');
-      const debugDir = path.join(dataDir, 'recall', 'debug-logs');
+      const debugDir = path.join(this.recallDataDir, 'debug-logs');
       fs.mkdirSync(debugDir, { recursive: true });
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const debugPath = path.join(debugDir, `app-detection-${timestamp}.json`);
