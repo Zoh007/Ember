@@ -31,9 +31,18 @@ class AppMonitor {
   }
 
   /**
-   * Get the currently focused app
+   * Get the currently focused app with detailed debug logging.
    */
   async getActiveApp() {
+    const debugLog = {
+      timestamp: new Date().toISOString(),
+      activeWinResult: null,
+      activeWinError: null,
+      osascriptAppNameStdout: null,
+      osascriptWindowTitleStdout: null,
+      finalResult: null,
+    };
+
     // Attempt dynamic import of `active-win` if available and not yet loaded.
     if (!activeWin) {
       try {
@@ -49,12 +58,16 @@ class AppMonitor {
         // Call active-win with default options. In many environments this
         // returns `{ owner: { name }, title }` which is ideal for our use.
         const win = await activeWin();
+        debugLog.activeWinResult = win;
         if (win && (win.owner?.name || win.title)) {
           console.debug('[AppMonitor] active-win detected:', win.owner?.name, win.title);
+          debugLog.finalResult = { name: win.owner?.name || 'Unknown', title: win.title || '' };
+          this._writeDebugLog(debugLog);
           return { name: win.owner?.name || 'Unknown', title: win.title || '' };
         }
         console.debug('[AppMonitor] active-win returned no useful data');
       } catch (error) {
+        debugLog.activeWinError = error && error.stack ? error.stack : String(error);
         console.warn('[AppMonitor] active-win failed, falling back to AppleScript:', error.message);
         // fall through to fallback
       }
@@ -74,7 +87,8 @@ on error
 end try`;
 
         const appName = await new Promise((resolve) => {
-          execFile('osascript', ['-e', getAppName], (err, stdout) => {
+          execFile('osascript', ['-e', getAppName], (err, stdout, stderr) => {
+            debugLog.osascriptAppNameStdout = stdout.toString();
             if (err) {
               console.debug('[AppMonitor] osascript app name failed:', err.message);
               return resolve(null);
@@ -85,13 +99,15 @@ end try`;
 
         if (!appName) {
           console.debug('[AppMonitor] osascript returned no app name');
+          this._writeDebugLog(debugLog);
           return null;
         }
 
         // Generic front window title retrieval; avoids app-specific scripts so
         // it works across all applications that expose a front window name.
         const windowTitle = await new Promise((resolve) => {
-          execFile('osascript', ['-e', getWindowTitle], (err, stdout) => {
+          execFile('osascript', ['-e', getWindowTitle], (err, stdout, stderr) => {
+            debugLog.osascriptWindowTitleStdout = stdout.toString();
             if (err) {
               console.debug('[AppMonitor] osascript window title failed:', err.message);
               return resolve('');
@@ -101,14 +117,35 @@ end try`;
         });
 
         console.debug('[AppMonitor] osascript detected:', appName, windowTitle);
+        debugLog.finalResult = { name: appName, title: windowTitle || '' };
+        this._writeDebugLog(debugLog);
         return { name: appName, title: windowTitle || '' };
       } catch (error) {
         console.error('[AppMonitor] macOS fallback failed:', error.message);
+        this._writeDebugLog(debugLog);
         return null;
       }
     }
 
+    this._writeDebugLog(debugLog);
     return null;
+  }
+
+  /**
+   * Write debug log for app detection (timestamps JSON to Recall data dir)
+   */
+  _writeDebugLog(debugLog) {
+    try {
+      const dataDir = require('electron').app.getPath('userData');
+      const debugDir = path.join(dataDir, 'recall', 'debug-logs');
+      fs.mkdirSync(debugDir, { recursive: true });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const debugPath = path.join(debugDir, `app-detection-${timestamp}.json`);
+      fs.writeFileSync(debugPath, JSON.stringify(debugLog, null, 2), 'utf8');
+      console.log('[AppMonitor] Debug log written to:', debugPath);
+    } catch (e) {
+      console.warn('[AppMonitor] Failed to write debug log:', e && e.message ? e.message : e);
+    }
   }
 
   /**
