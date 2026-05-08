@@ -241,7 +241,20 @@ function runRecall(args, payload = null) {
 
 async function captureWindowActivity() {
   try {
-    const activeWin = (await import('active-win')).default;
+    // Try to import active-win, but it may not be available
+    let activeWin = null;
+    try {
+      const imported = await import('active-win');
+      activeWin = imported.default || imported;
+    } catch (e) {
+      console.debug('active-win not available, skipping window activity capture');
+      return;
+    }
+
+    if (!activeWin) {
+      return;
+    }
+
     const windowInfo = await activeWin();
     if (!windowInfo) {
       return;
@@ -258,6 +271,9 @@ async function captureWindowActivity() {
       },
     });
   } catch (error) {
+    console.debug('captureWindowActivity error:', error.message);
+  }
+}
     console.error('Recall window capture failed:', error.message);
   }
 }

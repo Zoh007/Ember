@@ -2,6 +2,9 @@ const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+// Lazy-loaded active-win module (dynamic import fallback for ESM)
+let activeWin = null;
+
 /**
  * Monitor the active application and log to SQLite
  */
@@ -75,13 +78,6 @@ class AppMonitor {
     if (process.platform === 'darwin') {
       try {
         const getAppName = 'tell application "System Events" to get name of first application process whose frontmost is true';
-        const getWindowTitle = `try
-  tell application (tell application "System Events" to get name of first application process whose frontmost is true)
-    get name of front window
-  end tell
-on error
-  return ""
-end try`;
 
         const appName = await new Promise((resolve) => {
           execFile('osascript', ['-e', getAppName], (err, stdout, stderr) => {
@@ -100,13 +96,23 @@ end try`;
           return null;
         }
 
-        // Generic front window title retrieval; avoids app-specific scripts so
-        // it works across all applications that expose a front window name.
+        // Get window title using the app name we just retrieved
+        const getWindowTitle = `
+try
+  tell application "${appName.replace(/"/g, '\\"')}"
+    get name of front window
+  end tell
+on error
+  return ""
+end try`;
+
         const windowTitle = await new Promise((resolve) => {
           execFile('osascript', ['-e', getWindowTitle], (err, stdout, stderr) => {
             debugLog.osascriptWindowTitleStdout = stdout.toString();
             if (err) {
-              console.debug('[AppMonitor] osascript window title failed:', err.message);
+              // Window title detection might fail due to Accessibility permission
+              // This is expected and acceptable; the app name is the important part
+              console.debug('[AppMonitor] osascript window title failed (Accessibility permission may be needed):', err.message);
               return resolve('');
             }
             resolve(stdout.toString().trim());

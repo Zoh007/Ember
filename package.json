@@ -28,7 +28,7 @@
     "tesseract.js": "latest"
   },
   "devDependencies": {
-    "electron": "latest",
+    "electron": "^27.0.0",
     "electron-builder": "latest",
     "electron-rebuild": "^2.3.5"
   },
