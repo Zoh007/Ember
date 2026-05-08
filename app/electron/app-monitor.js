@@ -151,6 +151,27 @@ end try`;
   }
 
   /**
+   * Write an open-apps snapshot JSON to the debug-logs folder
+   */
+  _writeOpenAppsLog(openApps) {
+    try {
+      const debugDir = path.join(this.recallDataDir, 'debug-logs');
+      fs.mkdirSync(debugDir, { recursive: true });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const debugPath = path.join(debugDir, `app-list-${timestamp}.json`);
+      const payload = {
+        timestamp: new Date().toISOString(),
+        count: Array.isArray(openApps) ? openApps.length : 0,
+        apps: openApps,
+      };
+      fs.writeFileSync(debugPath, JSON.stringify(payload, null, 2), 'utf8');
+      console.log('[AppMonitor] Open-apps snapshot written to:', debugPath);
+    } catch (e) {
+      console.warn('[AppMonitor] Failed to write open-apps snapshot:', e && e.message ? e.message : e);
+    }
+  }
+
+  /**
    * Log app activity to SQLite database
    */
   async logAppActivity(appName, windowTitle) {
@@ -401,6 +422,29 @@ end try`;
     return setInterval(async () => {
       try {
         const app = await this.getActiveApp();
+
+        // Capture a snapshot of all open apps each interval and write to JSON
+        try {
+          const openApps = await this.listOpenApps();
+          this._writeOpenAppsLog(openApps);
+
+          // Optionally log each open app as an activity (default: enabled).
+          // Set RECALL_LOG_OPEN_APPS=0 to disable per-app logging.
+          const logOpen = process.env.RECALL_LOG_OPEN_APPS === '0' ? false : true;
+          if (Array.isArray(openApps) && logOpen) {
+            for (const entry of openApps) {
+              const appName = entry.name || 'Unknown';
+              const windowTitle = Array.isArray(entry.windows) && entry.windows.length ? entry.windows[0] : '';
+              try {
+                await this.logAppActivity(appName, windowTitle);
+              } catch (e) {
+                console.debug('[AppMonitor] Failed to log open-app activity:', e && e.message ? e.message : e);
+              }
+            }
+          }
+        } catch (e) {
+          console.debug('[AppMonitor] Open-app snapshot failed:', e && e.message ? e.message : e);
+        }
         if (!app) {
           console.debug('[AppMonitor] No active app detected');
           return;
