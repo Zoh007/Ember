@@ -1,4 +1,4 @@
-const { app, Tray, Menu, nativeImage, Notification, clipboard, desktopCapturer, shell, BrowserWindow, ipcMain, systemPreferences } = require('electron');
+const { app, Tray, Menu, nativeImage, Notification, clipboard, desktopCapturer, shell, BrowserWindow, ipcMain, systemPreferences, dialog } = require('electron');
 
 // Quick check for macOS Accessibility trust. Prints `true` if the current
 // running process is trusted for Accessibility; `false` otherwise.
@@ -410,10 +410,14 @@ function createTray() {
               note: app ? 'Active app detection is working.' : 'Could not detect active app. Check System Preferences > Security & Privacy > Accessibility.',
             };
 
-            fs.mkdirSync(recallDataDir(), { recursive: true });
-            const outPath = path.join(recallDataDir(), `test-active-app-${timestampForFilename()}.json`);
-            fs.writeFileSync(outPath, JSON.stringify(out, null, 2), 'utf8');
-            await shell.openPath(outPath);
+            await dialog.showMessageBox({
+              type: 'info',
+              title: 'Active App Detection',
+              message: 'Test active app detection result',
+              detail: JSON.stringify(out, null, 2),
+              buttons: ['OK'],
+              noLink: true,
+            });
           } catch (e) {
             new Notification({ title: APP_NAME, body: `Test failed: ${e.message}` }).show();
           }
