@@ -274,9 +274,6 @@ async function captureWindowActivity() {
     console.debug('captureWindowActivity error:', error.message);
   }
 }
-    console.error('Recall window capture failed:', error.message);
-  }
-}
 
 function classifyWindowKind(windowInfo) {
   const appName = (windowInfo.owner?.name || '').toLowerCase();
