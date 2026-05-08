@@ -55,37 +55,78 @@ function showTestResultWindow(payload) {
     <title>Active App Detection Result</title>
     <style>
       :root { color-scheme: light dark; }
-      body {
+      * {
+        box-sizing: border-box;
+      }
+      html, body {
         margin: 0;
+        padding: 0;
+        height: 100%;
+        width: 100%;
+      }
+      body {
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
         background: #0f172a;
         color: #e2e8f0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
       }
       .wrap {
-        padding: 16px;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        overflow: hidden;
       }
       h1 {
-        margin: 0 0 12px;
+        margin: 0 0 16px;
         font-size: 14px;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         color: #93c5fd;
+        flex-shrink: 0;
+      }
+      .content-wrapper {
+        flex: 1;
+        overflow: auto;
+        display: flex;
       }
       pre {
         margin: 0;
-        padding: 12px;
+        padding: 16px;
         border-radius: 8px;
         border: 1px solid #334155;
         background: #020617;
         white-space: pre-wrap;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
         word-break: break-word;
-        line-height: 1.4;
+        line-height: 1.5;
+        width: 100%;
+        flex: 1;
+      }
+      pre::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      pre::-webkit-scrollbar-track {
+        background: #0f172a;
+      }
+      pre::-webkit-scrollbar-thumb {
+        background: #475569;
+        border-radius: 4px;
+      }
+      pre::-webkit-scrollbar-thumb:hover {
+        background: #64748b;
       }
     </style>
   </head>
   <body>
     <div class="wrap">
       <h1>Test active app detection result</h1>
-      <pre>${escapeHtml(detail)}</pre>
+      <div class="content-wrapper">
+        <pre>${escapeHtml(detail)}</pre>
+      </div>
     </div>
   </body>
 </html>`;
@@ -98,8 +139,8 @@ function showTestResultWindow(payload) {
   }
 
   testResultWindow = new BrowserWindow({
-    width: 760,
-    height: 560,
+    width: 1000,
+    height: 700,
     title: 'Active App Detection Result',
     autoHideMenuBar: true,
     alwaysOnTop: true,
