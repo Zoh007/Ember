@@ -37,6 +37,8 @@ let appMonitorTimer = null;
 let appMonitor = null;
 let lastClipboardText = '';
 let testResultWindow = null;
+let liveJsonWindow = null;
+let liveJsonTimer = null;
 
 function escapeHtml(value) {
   return String(value)
@@ -156,6 +158,72 @@ function showTestResultWindow(payload) {
   testResultWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(html)}`);
   testResultWindow.show();
   testResultWindow.focus();
+}
+
+function showLiveJsonWindow() {
+  if (liveJsonWindow && !liveJsonWindow.isDestroyed()) {
+    liveJsonWindow.show();
+    liveJsonWindow.focus();
+    return;
+  }
+
+  liveJsonWindow = new BrowserWindow({
+    width: 900,
+    height: 700,
+    title: 'Live App JSON',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-viewer.js'),
+      contextIsolation: true,
+      enableRemoteModule: false,
+    },
+  });
+
+  const html = `<!doctype html><html><head><meta charset="utf-8"/><title>Live App JSON</title><style>html,body{height:100%;margin:0;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;background:#0b1220;color:#e6eef8} .wrap{padding:16px;display:flex;flex-direction:column;height:100%} h1{margin:0 0 12px;font-size:16px;color:#93c5fd} pre{flex:1;background:#020617;border:1px solid #2b3440;padding:12px;border-radius:8px;overflow:auto;white-space:pre-wrap;word-break:break-word} .meta{font-size:12px;color:#9fb0d7;margin-bottom:8px}</style></head><body><div class="wrap"><h1>Live App JSON</h1><div class="meta">Updates every second. File source: debug-logs</div><pre id="json">Loading…</pre></div><script>const pre=document.getElementById('json');window.electronAPI.onLiveJson((payload)=>{try{pre.textContent=JSON.stringify(payload,null,2);}catch(e){pre.textContent=String(payload);} });</script></body></html>`;
+
+  liveJsonWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(html)}`);
+  liveJsonWindow.show();
+  liveJsonWindow.focus();
+
+  // Start a timer to stream the latest debug JSON files
+  const debugDir = path.join(recallDataDir(), 'debug-logs');
+
+  function getLatest(prefix) {
+    try {
+      if (!fs.existsSync(debugDir)) return null;
+      const files = fs.readdirSync(debugDir).filter((f) => f.startsWith(prefix) && f.endsWith('.json'));
+      if (!files.length) return null;
+      const sorted = files
+        .map((f) => ({ f, m: fs.statSync(path.join(debugDir, f)).mtimeMs }))
+        .sort((a, b) => b.m - a.m);
+      const chosen = sorted[0].f;
+      const raw = fs.readFileSync(path.join(debugDir, chosen), 'utf8');
+      return { path: path.join(debugDir, chosen), json: JSON.parse(raw) };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  if (liveJsonTimer) clearInterval(liveJsonTimer);
+  liveJsonTimer = setInterval(() => {
+    if (!liveJsonWindow || liveJsonWindow.isDestroyed()) return;
+    const active = getLatest('app-detection-');
+    const list = getLatest('app-list-');
+    const payload = { timestamp: new Date().toISOString(), active: active ? active.json : null, active_path: active ? active.path : null, list: list ? list.json : null, list_path: list ? list.path : null };
+    try {
+      liveJsonWindow.webContents.send('live-json', payload);
+    } catch (e) {
+      console.debug('live-json send failed:', e && e.message ? e.message : e);
+    }
+  }, 1000);
+
+  liveJsonWindow.on('closed', () => {
+    liveJsonWindow = null;
+    if (liveJsonTimer) {
+      clearInterval(liveJsonTimer);
+      liveJsonTimer = null;
+    }
+  });
 }
 
 function projectRoot() {
@@ -525,6 +593,16 @@ function createTray() {
             new Notification({ title: APP_NAME, body: parsed ? 'Open apps snapshot saved.' : 'Snapshot completed.' }).show();
           } catch (e) {
             new Notification({ title: APP_NAME, body: `Snapshot failed: ${e.message}` }).show();
+          }
+        },
+      },
+      {
+        label: 'Live JSON viewer',
+        click: async () => {
+          try {
+            showLiveJsonWindow();
+          } catch (e) {
+            new Notification({ title: APP_NAME, body: `Live viewer failed: ${e.message}` }).show();
           }
         },
       },
