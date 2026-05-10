@@ -525,8 +525,10 @@ end try`;
       return null;
     }
 
-    const python = this.recallExecutable || 'python3';
-    const child = spawn(python, [scriptPath], { cwd: this.projectRoot });
+    // Use RECALL_PYTHON env var if set; otherwise use the bundled or system python3.
+    // This ensures the watcher uses the same Python environment (e.g., with PyObjC installed).
+    const pythonPath = process.env.RECALL_PYTHON || this.recallExecutable || 'python3';
+    const child = spawn(pythonPath, [scriptPath], { cwd: this.projectRoot });
     this.eventWatcher = child;
 
     child.stdout.on('data', async (chunk) => {
@@ -535,9 +537,9 @@ end try`;
         try {
           const obj = JSON.parse(line);
           if (obj && obj.event === 'app_switch') {
-            // Map to the existing handlers used for polling
+            // Extract app name and window title from the watcher payload
             const appName = obj.name || 'Unknown';
-            const windowTitle = '';
+            const windowTitle = obj.title || ''; // App_watcher now populates this via AppleScript
             try {
               // Use existing session logic
               await this._handleDetectedApp(appName, windowTitle, { source: 'event' });
@@ -555,7 +557,7 @@ end try`;
     child.on('close', (code) => console.log('[AppMonitor] watcher exited', code));
     child.on('error', (err) => console.error('[AppMonitor] watcher error', err && err.message ? err.message : err));
 
-    console.log('[AppMonitor] Started event watcher (pid:', child.pid, ')');
+    console.log('[AppMonitor] Started event watcher (pid:', child.pid, ', python:', pythonPath, ')');
     return child;
   }
 
