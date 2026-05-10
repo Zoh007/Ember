@@ -186,10 +186,10 @@ end try`;
         occurred_at: new Date().toISOString(),
       });
 
-      const command = this.recallExecutable || 'python3';
+      const pythonPath = process.env.RECALL_PYTHON || this.recallExecutable || 'python3';
       const args = this.recallExecutable ? ['capture', 'app'] : ['-m', 'recall_ai.cli', 'capture', 'app'];
 
-      const python = spawn(command, args, {
+      const python = spawn(pythonPath, args, {
         cwd: this.projectRoot,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -389,10 +389,10 @@ end try`;
         metadata: { action: 'start' },
       });
 
-      const command = this.recallExecutable || 'python3';
+      const pythonPath = process.env.RECALL_PYTHON || this.recallExecutable || 'python3';
       const args = this.recallExecutable ? ['capture', 'session'] : ['-m', 'recall_ai.cli', 'capture', 'session'];
 
-      const child = spawn(command, args, { cwd: this.projectRoot, stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(pythonPath, args, { cwd: this.projectRoot, stdio: ['pipe', 'pipe', 'pipe'] });
       let out = '';
       let err = '';
       child.stdout.on('data', (d) => (out += d.toString()));
@@ -418,10 +418,10 @@ end try`;
         metadata: { action: 'end' },
       });
 
-      const command = this.recallExecutable || 'python3';
+      const pythonPath = process.env.RECALL_PYTHON || this.recallExecutable || 'python3';
       const args = this.recallExecutable ? ['capture', 'session'] : ['-m', 'recall_ai.cli', 'capture', 'session'];
 
-      const child = spawn(command, args, { cwd: this.projectRoot, stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(pythonPath, args, { cwd: this.projectRoot, stdio: ['pipe', 'pipe', 'pipe'] });
       let out = '';
       let err = '';
       child.stdout.on('data', (d) => (out += d.toString()));

@@ -26,6 +26,7 @@ class Activity:
     url: str | None
     metadata: dict
     external_id: str | None = None
+    is_work: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class ActivityInput:
     metadata: dict[str, Any] | None = None
     occurred_at: datetime | None = None
     external_id: str | None = None
+    is_work: bool | None = None
 
 
 class RecallStore:
@@ -61,6 +63,7 @@ class RecallStore:
             metadata=activity.metadata,
             occurred_at=activity.occurred_at,
             external_id=activity.external_id,
+            is_work=activity.is_work,
             path=self.db_path,
         )
 
@@ -141,11 +144,13 @@ def init_db(path: Path | None = None) -> None:
                 content TEXT,
                 url TEXT,
                 external_id TEXT,
+                is_work INTEGER,
                 metadata_json TEXT NOT NULL DEFAULT '{}'
             )
             """
         )
         _ensure_column(conn, "activities", "external_id", "TEXT")
+        _ensure_column(conn, "activities", "is_work", "INTEGER")
         conn.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_activities_external_id
@@ -215,6 +220,7 @@ def record_activity(
     metadata: dict | None = None,
     occurred_at: datetime | None = None,
     external_id: str | None = None,
+    is_work: bool | None = None,
     path: Path | None = None,
 ) -> int:
     init_db(path)
@@ -230,9 +236,9 @@ def record_activity(
         cursor = conn.execute(
             """
             INSERT INTO activities (
-                occurred_at, kind, source, app_name, title, content, url, external_id, metadata_json
+                occurred_at, kind, source, app_name, title, content, url, external_id, is_work, metadata_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 timestamp,
@@ -243,6 +249,7 @@ def record_activity(
                 content,
                 url,
                 external_id,
+                is_work,
                 json.dumps(metadata or {}, sort_keys=True),
             ),
         )
@@ -262,7 +269,7 @@ def recent_activities(
     with connection(path) as conn:
         rows = conn.execute(
             """
-            SELECT id, occurred_at, kind, source, app_name, title, content, url, external_id, metadata_json
+            SELECT id, occurred_at, kind, source, app_name, title, content, url, external_id, is_work, metadata_json
             FROM activities
             WHERE occurred_at >= ? AND occurred_at <= ?
             ORDER BY occurred_at ASC
@@ -282,6 +289,7 @@ def recent_activities(
             url=row["url"],
             metadata=json.loads(row["metadata_json"] or "{}"),
             external_id=row["external_id"],
+            is_work=bool(row["is_work"]) if row["is_work"] is not None else None,
         )
         for row in rows
     ]

@@ -12,6 +12,7 @@ from .calendar_import import import_ics
 from .config import database_path
 from .screen_vision import summarize_screen
 from .storage import ActivityInput, RecallStore
+from .work_noise_classifier import classify_activity
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,6 +106,7 @@ def main(argv: list[str] | None = None) -> int:
                 "title": a.title,
                 "content": a.content[:200] if a.content else "",
                 "url": a.url,
+                "is_work": a.is_work,
                 "metadata": a.metadata or {},
             }
             for a in activities
@@ -119,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
                 "title": s["title"],
                 "content": "",
                 "url": None,
+                "is_work": None,
                 "metadata": {
                     "ended_at": s["ended_at"].isoformat() if s["ended_at"] else None,
                     "duration_seconds": s["duration_seconds"],
@@ -178,15 +181,25 @@ def _activity_from_payload(kind: str, payload: dict[str, Any]) -> ActivityInput:
         # set a friendly title
         payload.setdefault("title", "Open applications snapshot")
 
+    app_name = str(payload.get("app_name") or "")
+    title = str(payload.get("title") or "")
+    
+    # Classify work/noise for app activities
+    is_work = None
+    if kind in ("app", "session"):
+        classification = classify_activity(app_name, title)
+        is_work = (classification == "work")
+
     return ActivityInput(
         kind=kind,
         occurred_at=parsed_time,
         source=str(payload.get("source") or kind),
-        app_name=str(payload.get("app_name") or ""),
-        title=str(payload.get("title") or ""),
+        app_name=app_name,
+        title=title,
         content=str(payload.get("content") or ""),
         url=payload.get("url") if isinstance(payload.get("url"), str) else None,
         metadata=metadata,
+        is_work=is_work,
     )
 
 

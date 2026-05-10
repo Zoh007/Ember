@@ -11,3 +11,6 @@ __pycache__/
 *.sqlite
 *.sqlite3
 recall-data/
+ember_spec.md
+tests/*.py
+!tests/test_*.py
