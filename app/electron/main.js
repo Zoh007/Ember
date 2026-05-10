@@ -698,6 +698,17 @@ async function startBackgroundCapture() {
 
   // Start app activity monitor (use event watcher on macOS for instant updates)
   appMonitor = new AppMonitor(projectRoot(), recallDataDir());
+  // Forward real-time detection events to the live JSON window (if open)
+  appMonitor.on('detection', (payload) => {
+    try {
+      if (liveJsonWindow && !liveJsonWindow.isDestroyed()) {
+        const livePayload = { timestamp: new Date().toISOString(), active: payload, active_path: null, list: null, list_path: null };
+        liveJsonWindow.webContents.send('live-json', livePayload);
+      }
+    } catch (e) {
+      console.debug('Failed to forward detection to live window:', e && e.message ? e.message : e);
+    }
+  });
   if (process.platform === 'darwin') {
     appMonitor.startEventWatcher();
     console.log('[Recall] App monitor started (event watcher)');

@@ -1,4 +1,5 @@
 const { spawn, execFile } = require('child_process');
+const EventEmitter = require('events');
 const path = require('path');
 const fs = require('fs');
 
@@ -8,8 +9,9 @@ let activeWin = null;
 /**
  * Monitor the active application and log to SQLite
  */
-class AppMonitor {
+class AppMonitor extends EventEmitter {
   constructor(projectRoot, recallDataDir) {
+    super();
     this.projectRoot = projectRoot;
     this.recallDataDir = recallDataDir;
     // current active app key and session id
@@ -598,7 +600,17 @@ end try`;
       }
 
       // Write a debug log for the detection
-      this._writeDebugLog({ timestamp: new Date().toISOString(), activeApp: app, detected: true, note: 'Detected via event', meta });
+      const payload = { timestamp: new Date().toISOString(), activeApp: app, detected: true, note: 'Detected via event', meta };
+      this._writeDebugLog(payload);
+
+      // Emit a detection event for listeners (main process UI) so live viewers
+      // can update immediately with the real current timestamp instead of
+      // reading older files.
+      try {
+        this.emit('detection', payload);
+      } catch (e) {
+        console.debug('[AppMonitor] emit detection failed:', e && e.message ? e.message : e);
+      }
 
       try {
         const eventId = await this.logAppActivity(app.name, app.title);
