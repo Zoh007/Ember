@@ -696,10 +696,15 @@ async function startBackgroundCapture() {
   calendarTimer = setInterval(captureCalendarActivity, CALENDAR_INTERVAL_MS);
   screenTimer = setInterval(captureScreenActivity, SCREEN_CAPTURE_INTERVAL_MS);
 
-  // Start app activity monitor
+  // Start app activity monitor (use event watcher on macOS for instant updates)
   appMonitor = new AppMonitor(projectRoot(), recallDataDir());
-  appMonitorTimer = appMonitor.startMonitoring(APP_MONITOR_INTERVAL_MS);
-  console.log(`[Recall] App monitor started (interval: ${APP_MONITOR_INTERVAL_MS}ms)`);
+  if (process.platform === 'darwin') {
+    appMonitor.startEventWatcher();
+    console.log('[Recall] App monitor started (event watcher)');
+  } else {
+    appMonitorTimer = appMonitor.startMonitoring(APP_MONITOR_INTERVAL_MS);
+    console.log(`[Recall] App monitor started (interval: ${APP_MONITOR_INTERVAL_MS}ms)`);
+  }
 }
 
 // Set up IPC handlers for the viewer window
@@ -731,5 +736,12 @@ app.on('before-quit', () => {
   }
   if (appMonitorTimer) {
     appMonitor.stopMonitoring(appMonitorTimer);
+  }
+  if (appMonitor) {
+    try {
+      appMonitor.stopEventWatcher();
+    } catch (e) {
+      console.debug('Failed to stop event watcher:', e && e.message ? e.message : e);
+    }
   }
 });

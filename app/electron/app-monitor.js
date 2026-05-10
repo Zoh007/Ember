@@ -270,6 +270,26 @@ end try`;
           const windows = parts[1] ? parts[1].split('||').filter(Boolean) : [];
           result.push({ name: name, windows: windows });
         }
+        // If windows arrays are empty for some apps, try querying the app directly
+        // for a front window title (less privileged, may still fail). Do this
+        // sequentially to avoid spawning too many osascript processes at once.
+        for (const entry of result) {
+          if ((!entry.windows || entry.windows.length === 0) && entry.name) {
+            try {
+              const singleTitle = await new Promise((resolve) => {
+                const script = `tell application "${entry.name}" to try\n set t to name of front window\n on error\n set t to ""\nend try\nreturn t`;
+                execFile('osascript', ['-e', script], { timeout: 1500 }, (err, stdout, stderr) => {
+                  if (err) return resolve('');
+                  resolve(stdout ? stdout.toString().trim() : '');
+                });
+              });
+              if (singleTitle) entry.windows = [singleTitle];
+            } catch (e) {
+              // ignore failures; leave windows empty
+            }
+          }
+        }
+
         return result;
       } catch (e) {
         console.error('macOS app-list AppleScript failed:', e);
@@ -489,6 +509,106 @@ end try`;
         console.error('[AppMonitor] Monitor error:', error.message);
       }
     }, intervalMs);
+  }
+
+  /**
+   * Start macOS event watcher (fast, zero-polling) by spawning the Python
+   * `app_watcher.py` script. It emits a JSON line on each app activation.
+   */
+  startEventWatcher() {
+    if (this.eventWatcher && !this.eventWatcher.killed) return;
+    const scriptPath = path.join(__dirname, 'app_watcher.py');
+    if (!fs.existsSync(scriptPath)) {
+      console.warn('[AppMonitor] app_watcher.py not found; falling back to polling');
+      return null;
+    }
+
+    const python = this.recallExecutable || 'python3';
+    const child = spawn(python, [scriptPath], { cwd: this.projectRoot });
+    this.eventWatcher = child;
+
+    child.stdout.on('data', async (chunk) => {
+      const s = chunk.toString();
+      for (const line of s.split(/\n/).map((l) => l.trim()).filter(Boolean)) {
+        try {
+          const obj = JSON.parse(line);
+          if (obj && obj.event === 'app_switch') {
+            // Map to the existing handlers used for polling
+            const appName = obj.name || 'Unknown';
+            const windowTitle = '';
+            try {
+              // Use existing session logic
+              await this._handleDetectedApp(appName, windowTitle, { source: 'event' });
+            } catch (e) {
+              console.debug('[AppMonitor] event handler failed:', e && e.message ? e.message : e);
+            }
+          }
+        } catch (e) {
+          console.debug('[AppMonitor] malformed watcher output:', line);
+        }
+      }
+    });
+
+    child.stderr.on('data', (d) => console.debug('[AppMonitor watcher stderr]', d.toString()));
+    child.on('close', (code) => console.log('[AppMonitor] watcher exited', code));
+    child.on('error', (err) => console.error('[AppMonitor] watcher error', err && err.message ? err.message : err));
+
+    console.log('[AppMonitor] Started event watcher (pid:', child.pid, ')');
+    return child;
+  }
+
+  stopEventWatcher() {
+    if (this.eventWatcher && !this.eventWatcher.killed) {
+      try {
+        this.eventWatcher.kill();
+      } catch (e) {
+        console.debug('[AppMonitor] failed to kill watcher:', e && e.message ? e.message : e);
+      }
+      this.eventWatcher = null;
+    }
+  }
+
+  /**
+   * Unified handler used by both the polling loop and the event watcher.
+   */
+  async _handleDetectedApp(name, title, meta = {}) {
+    try {
+      const app = { name: name || 'Unknown', title: title || '' };
+      const appKey = `${app.name}::${app.title}`;
+      if (appKey !== this.currentAppKey) {
+        // End previous
+        if (this.currentAppKey) {
+          const [prevName, prevTitle] = this.currentAppKey.split('::');
+          try {
+            await this.logSessionEnd(prevName, prevTitle);
+            console.log(`[AppMonitor] Ended session for: ${prevName} - "${prevTitle}"`);
+          } catch (e) {
+            console.error('[AppMonitor] Failed to end session:', e.message);
+          }
+        }
+
+        // Start new
+        this.currentAppKey = appKey;
+        try {
+          await this.logSessionStart(app.name, app.title);
+          console.log(`[AppMonitor] Started session for: ${app.name} - "${app.title}"`);
+        } catch (e) {
+          console.error('[AppMonitor] Failed to start session:', e.message);
+        }
+      }
+
+      // Write a debug log for the detection
+      this._writeDebugLog({ timestamp: new Date().toISOString(), activeApp: app, detected: true, note: 'Detected via event', meta });
+
+      try {
+        const eventId = await this.logAppActivity(app.name, app.title);
+        console.log(`[AppMonitor] Logged app activity: ${eventId}`);
+      } catch (error) {
+        console.error('[AppMonitor] Failed to log activity:', error.message);
+      }
+    } catch (error) {
+      console.error('[AppMonitor] _handleDetectedApp error:', error && error.message ? error.message : error);
+    }
   }
 
   /**
