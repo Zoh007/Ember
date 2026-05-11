@@ -12,5 +12,4 @@ __pycache__/
 *.sqlite3
 recall-data/
 ember_spec.md
-tests/*.py
-!tests/test_*.py
+tests/
