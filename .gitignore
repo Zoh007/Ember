@@ -13,3 +13,4 @@ __pycache__/
 recall-data/
 ember_spec.md
 tests/
+.env
