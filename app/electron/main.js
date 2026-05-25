@@ -1,4 +1,4 @@
-const { app, Tray, Menu, nativeImage, Notification, clipboard, desktopCapturer, shell, BrowserWindow, ipcMain, systemPreferences } = require('electron');
+const { app, Tray, Menu, nativeImage, Notification, clipboard, desktopCapturer, shell, BrowserWindow, ipcMain, systemPreferences, dialog, safeStorage } = require('electron');
 
 // Quick check for macOS Accessibility trust. Prints `true` if the current
 // running process is trusted for Accessibility; `false` otherwise.
@@ -39,6 +39,13 @@ let lastClipboardText = '';
 let testResultWindow = null;
 let liveJsonWindow = null;
 let liveJsonTimer = null;
+
+function applyWindowHardening(window) {
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+}
 
 function escapeHtml(value) {
   return String(value)
@@ -148,8 +155,14 @@ function showTestResultWindow(payload) {
     alwaysOnTop: true,
     webPreferences: {
       contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     },
   });
+
+  applyWindowHardening(testResultWindow);
 
   testResultWindow.on('closed', () => {
     testResultWindow = null;
@@ -175,9 +188,15 @@ function showLiveJsonWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload-viewer.js'),
       contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
       enableRemoteModule: false,
     },
   });
+
+  applyWindowHardening(liveJsonWindow);
 
   const html = `<!doctype html><html><head><meta charset="utf-8"/><title>Live App JSON</title><style>html,body{height:100%;margin:0;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;background:#0b1220;color:#e6eef8} .wrap{padding:16px;display:flex;flex-direction:column;height:100%} h1{margin:0 0 12px;font-size:16px;color:#93c5fd} pre{flex:1;background:#020617;border:1px solid #2b3440;padding:12px;border-radius:8px;overflow:auto;white-space:pre-wrap;word-break:break-word} .meta{font-size:12px;color:#9fb0d7;margin-bottom:8px}</style></head><body><div class="wrap"><h1>Live App JSON</h1><div class="meta">Updates every second. File source: debug-logs</div><pre id="json">Loading…</pre></div><script>const pre=document.getElementById('json');window.electronAPI.onLiveJson((payload)=>{try{pre.textContent=JSON.stringify(payload,null,2);}catch(e){pre.textContent=String(payload);} });</script></body></html>`;
 
@@ -242,6 +261,65 @@ function settingsPath() {
   return path.join(recallDataDir(), 'settings.json');
 }
 
+function defaultSettings() {
+  return {
+    vision_provider: 'ocr',
+    ollama_url: 'http://127.0.0.1:11434',
+    ollama_model: 'llava',
+    screen_capture_enabled: true,
+    screen_capture_interval_minutes: 2,
+  };
+}
+
+function persistSettings(settings) {
+  fs.mkdirSync(recallDataDir(), { recursive: true });
+  fs.writeFileSync(settingsPath(), JSON.stringify(settings, null, 2), 'utf8');
+}
+
+function loadSettings() {
+  ensureSettingsFile();
+
+  try {
+    const settings = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+    let changed = false;
+
+    if (settings.openai_api_key && safeStorage.isEncryptionAvailable()) {
+      settings.openai_api_key_encrypted = safeStorage.encryptString(String(settings.openai_api_key)).toString('base64');
+      delete settings.openai_api_key;
+      changed = true;
+    }
+
+    if (changed) {
+      persistSettings(settings);
+    }
+
+    return settings;
+  } catch (error) {
+    console.error('Recall settings load failed:', error.message);
+    return defaultSettings();
+  }
+}
+
+function loadOpenAiApiKey(settings) {
+  if (process.env.OPENAI_API_KEY) {
+    return process.env.OPENAI_API_KEY;
+  }
+
+  if (settings.openai_api_key_encrypted && safeStorage.isEncryptionAvailable()) {
+    try {
+      return safeStorage.decryptString(Buffer.from(settings.openai_api_key_encrypted, 'base64'));
+    } catch (error) {
+      console.error('Failed to decrypt stored OpenAI API key:', error.message);
+    }
+  }
+
+  if (settings.openai_api_key) {
+    return settings.openai_api_key;
+  }
+
+  return '';
+}
+
 function screenshotsDir() {
   return path.join(recallDataDir(), 'screenshots');
 }
@@ -262,22 +340,7 @@ function bundledRecallExecutable() {
 function ensureSettingsFile() {
   fs.mkdirSync(recallDataDir(), { recursive: true });
   if (!fs.existsSync(settingsPath())) {
-    fs.writeFileSync(
-      settingsPath(),
-      JSON.stringify(
-        {
-          vision_provider: "ocr",
-          openai_api_key: "",
-          ollama_url: "http://127.0.0.1:11434",
-          ollama_model: "llava",
-          screen_capture_enabled: true,
-          screen_capture_interval_minutes: 2,
-        },
-        null,
-        2,
-      ),
-      'utf8',
-    );
+    persistSettings(defaultSettings());
   }
 }
 
@@ -289,10 +352,10 @@ function recallEnvironment() {
   };
 
   try {
-    ensureSettingsFile();
-    const settings = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
-    if (!env.OPENAI_API_KEY && settings.openai_api_key) {
-      env.OPENAI_API_KEY = settings.openai_api_key;
+    const settings = loadSettings();
+    const openAiApiKey = loadOpenAiApiKey(settings);
+    if (!env.OPENAI_API_KEY && openAiApiKey) {
+      env.OPENAI_API_KEY = openAiApiKey;
     }
     if (settings.vision_provider) {
       env.RECALL_VISION_PROVIDER = settings.vision_provider;
@@ -521,16 +584,57 @@ async function openSettingsFile() {
   await shell.openPath(settingsPath());
 }
 
+async function deleteAllData() {
+  const response = await dialog.showMessageBox({
+    type: 'warning',
+    buttons: ['Delete everything', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+    title: 'Delete all local Recall data',
+    message: 'This will permanently delete all local Recall data on this machine.',
+    detail: 'Briefings, activities, screenshots, debug logs, and the local database will be removed. The app will recreate an empty database afterward.',
+  });
+
+  if (response.response !== 0) {
+    return;
+  }
+
+  try {
+    await runRecall(['delete-all']);
+    if (fs.existsSync(latestBriefingPath())) {
+      fs.unlinkSync(latestBriefingPath());
+    }
+    if (fs.existsSync(screenshotsDir())) {
+      fs.rmSync(screenshotsDir(), { recursive: true, force: true });
+    }
+    const debugDir = path.join(recallDataDir(), 'debug-logs');
+    if (fs.existsSync(debugDir)) {
+      fs.rmSync(debugDir, { recursive: true, force: true });
+    }
+    new Notification({ title: APP_NAME, body: 'All local Recall data was deleted.' }).show();
+  } catch (error) {
+    new Notification({ title: APP_NAME, body: `Delete failed: ${error.message}` }).show();
+  }
+}
+
 async function openViewerWindow() {
   const viewerWindow = new BrowserWindow({
     width: 1100,
     height: 700,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload-viewer.js'),
       contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
       enableRemoteModule: false,
     },
   });
+
+  applyWindowHardening(viewerWindow);
 
   viewerWindow.loadFile(path.join(__dirname, 'viewer.html'));
 }
@@ -667,6 +771,10 @@ function createTray() {
         click: openSettingsFile,
       },
       {
+        label: 'Delete everything',
+        click: deleteAllData,
+      },
+      {
         label: 'View briefing & activities',
         click: openViewerWindow,
       },
@@ -721,6 +829,10 @@ async function startBackgroundCapture() {
 // Set up IPC handlers for the viewer window
 ipcMain.handle('get-briefing', getBriefingForIPC);
 ipcMain.handle('get-activities', getActivitiesForIPC);
+ipcMain.handle('delete-all-data', async () => {
+  await deleteAllData();
+  return true;
+});
 
 app.whenReady().then(async () => {
   app.setName(APP_NAME);

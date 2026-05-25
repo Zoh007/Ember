@@ -35,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
     briefing_parser = subparsers.add_parser("briefing", help="Generate a morning briefing")
     briefing_parser.add_argument("--date", dest="target_date", help="Briefing date in YYYY-MM-DD format")
 
+    subparsers.add_parser("delete-all", help="Delete all local Recall data and recreate an empty database")
+
     screen_parser = subparsers.add_parser("capture-screen", help="Summarize and capture a local screenshot")
     screen_parser.add_argument("image_path", help="Path to the screenshot image")
 
@@ -88,6 +90,11 @@ def main(argv: list[str] | None = None) -> int:
         store.initialize()
         target_date = _parse_date(args.target_date) if args.target_date else None
         print(generate_daily_briefing(store, target_date))
+        return 0
+
+    if args.command == "delete-all":
+        store.delete_all_data()
+        print(store.db_path)
         return 0
 
     if args.command == "query-activities":

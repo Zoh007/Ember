@@ -344,6 +344,7 @@ def _empty_briefing(target_date: date) -> str:
 
 
 def _day_bounds(target_date: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(target_date, time.min, tzinfo=timezone.utc)
-    end = start + timedelta(days=1)
-    return start, end
+    local_tz = datetime.now().astimezone().tzinfo or timezone.utc
+    start_local = datetime.combine(target_date, time.min, tzinfo=local_tz)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)

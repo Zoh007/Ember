@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -90,6 +91,9 @@ class RecallStore:
 
     def recent_sessions(self, *args, **kwargs):
         return recent_sessions(*args, path=self.db_path, **kwargs)
+
+    def delete_all_data(self) -> None:
+        delete_all_data(path=self.db_path)
 
 
 def utc_now() -> datetime:
@@ -207,6 +211,21 @@ def init_db(path: Path | None = None) -> None:
             ON sessions (started_at)
             """
         )
+
+
+def delete_all_data(path: Path | None = None) -> None:
+    db_path = path or database_path()
+    data_dir = db_path.parent
+
+    if data_dir.exists():
+        for child in data_dir.iterdir():
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink(missing_ok=True)
+
+    data_dir.mkdir(parents=True, exist_ok=True)
+    init_db(db_path)
 
 
 def record_activity(

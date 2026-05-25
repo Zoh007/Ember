@@ -43,6 +43,12 @@ morning briefing, capture the screen now, or open the local data folder. The
 the local data folder; the SQLite database is not meant to be opened as a text
 file.
 
+## Security Hardening
+
+The current desktop shell is hardened with `contextIsolation`, `nodeIntegration: false`, `sandbox`, and navigation/popup blocking in the Electron main process. The briefing viewer uses a Content Security Policy, and the app exposes a local `Delete everything` action to wipe stored data.
+
+Still planned, not yet shipped: at-rest database encryption. API keys are now migrated into Electron's OS-backed encrypted storage instead of staying in plaintext `settings.json`.
+
 On macOS, Recall appears as a small circular icon in the menu bar near the
 clock and Control Center. It does not open a dock window.
 
@@ -77,6 +83,8 @@ Ollama:
 The default `"vision_provider": "local-ocr"` requires no extra installs. If you prefer
 Ollama, set `"vision_provider": "ollama"`. If you prefer OpenAI, set
 `"vision_provider": "openai"` and add `"openai_api_key": "sk-..."`.
+
+That API key is now migrated into Electron's OS-backed encrypted storage. If you still have an older `settings.json` with a plaintext key, the app will migrate it on launch.
 
 ## Download a packaged build
 
