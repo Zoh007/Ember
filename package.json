@@ -11,7 +11,8 @@
     "release": "npm run build:python && electron-builder --publish=always",
     "briefing": "python3 -m recall_ai.cli briefing",
     "init-db": "python3 -m recall_ai.cli init-db",
-    "test": "python -m unittest discover -s tests"
+    "test": "python -m unittest discover -s tests",
+    "check:package:sqlcipher": "node scripts/check_package_sqlcipher.js"
   },
   "keywords": [
     "desktop",

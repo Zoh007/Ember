@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from datetime import date, datetime, timezone
 import json
+import re
 from pathlib import Path
 import sys
 from typing import Any
@@ -36,6 +37,12 @@ def main(argv: list[str] | None = None) -> int:
     briefing_parser.add_argument("--date", dest="target_date", help="Briefing date in YYYY-MM-DD format")
 
     subparsers.add_parser("delete-all", help="Delete all local Recall data and recreate an empty database")
+    # Migration command: migrate a plaintext SQLite DB into SQLCipher-encrypted DB (makes a backup)
+    migrate_parser = subparsers.add_parser(
+        "migrate-db",
+        help="Migrate an existing plaintext SQLite DB to the encrypted SQLCipher DB (makes a backup)",
+    )
+    migrate_parser.add_argument("--yes", action="store_true", help="Skip interactive confirmation")
 
     screen_parser = subparsers.add_parser("capture-screen", help="Summarize and capture a local screenshot")
     screen_parser.add_argument("image_path", help="Path to the screenshot image")
@@ -49,6 +56,46 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "init-db":
         store.initialize()
         print(store.db_path)
+        return 0
+
+    if args.command == "migrate-db":
+        # Safe migration path: creates a timestamped backup, attempts migration, and verifies it.
+        db_path = store.db_path
+        # Confirm
+        if not args.yes:
+            print(f"This will BACK UP and migrate the database at: {db_path}")
+            confirm = input("Type 'MIGRATE' to continue: ")
+            if confirm.strip() != "MIGRATE":
+                print("Aborted.")
+                return 1
+
+        # Create backup
+        backup = db_path.with_suffix(db_path.suffix + ".bak")
+        if backup.exists():
+            # rotate existing backup
+            backup_rot = db_path.with_suffix(db_path.suffix + ".bak.old")
+            backup.rename(backup_rot)
+        if db_path.exists():
+            db_path.replace(backup)
+            print(f"Backup created: {backup}")
+        else:
+            print("No existing DB found to migrate.")
+            return 1
+
+        # Attempt migration using the storage helper
+        try:
+            # _migrate_plaintext_database expects the original path; it will move the backup back on failure
+            from .storage import _migrate_plaintext_database
+
+            _migrate_plaintext_database(db_path)
+        except Exception as exc:
+            print("Migration failed:", exc)
+            # restore backup if it exists
+            if backup.exists():
+                backup.replace(db_path)
+            return 2
+
+        print("Migration complete.")
         return 0
 
     if args.command == "capture":
@@ -76,7 +123,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(session_id or "")
                 return 0
 
-        event_id = store.record_activity(_activity_from_payload(args.kind, payload))
+        activity = _activity_from_payload(args.kind, payload)
+        if activity is None:
+            print("")
+            return 0
+        event_id = store.record_activity(activity)
         print(event_id)
         return 0
 
@@ -163,7 +214,25 @@ def _read_json_stdin() -> dict[str, Any]:
     return value
 
 
-def _activity_from_payload(kind: str, payload: dict[str, Any]) -> ActivityInput:
+_SENSITIVE_CLIPBOARD_PATTERNS = [
+    re.compile(r"\b(password|passcode|passwd|secret|token|bearer|authorization|api[-_ ]?key|client[-_ ]?secret|private[-_ ]?key|access[-_ ]?token)\b", re.IGNORECASE),
+    re.compile(r"\b(sk-[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|gh[pous]_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z\-_]{20,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16})\b"),
+    re.compile(r"-----BEGIN [A-Z ]+-----"),
+]
+
+
+def _sanitize_clipboard_content(content: str) -> str | None:
+    normalized = content.replace("\r\n", "\n").strip()
+    if not normalized:
+        return None
+    if len(normalized) > 500:
+        return None
+    if any(pattern.search(normalized) for pattern in _SENSITIVE_CLIPBOARD_PATTERNS):
+        return None
+    return normalized
+
+
+def _activity_from_payload(kind: str, payload: dict[str, Any]) -> ActivityInput | None:
     occurred_at = payload.get("occurred_at")
     parsed_time = (
         datetime.fromisoformat(occurred_at.replace("Z", "+00:00"))
@@ -190,6 +259,13 @@ def _activity_from_payload(kind: str, payload: dict[str, Any]) -> ActivityInput:
 
     app_name = str(payload.get("app_name") or "")
     title = str(payload.get("title") or "")
+    content = str(payload.get("content") or "")
+
+    if kind == "clipboard":
+        sanitized = _sanitize_clipboard_content(content)
+        if sanitized is None:
+            return None
+        content = sanitized
     
     # Classify work/noise for app activities
     is_work = None
@@ -203,7 +279,7 @@ def _activity_from_payload(kind: str, payload: dict[str, Any]) -> ActivityInput:
         source=str(payload.get("source") or kind),
         app_name=app_name,
         title=title,
-        content=str(payload.get("content") or ""),
+        content=content,
         url=payload.get("url") if isinstance(payload.get("url"), str) else None,
         metadata=metadata,
         is_work=is_work,

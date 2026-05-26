@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import base64
-from datetime import UTC, datetime
+from datetime import datetime
+try:
+    from datetime import UTC  # type: ignore
+except Exception:
+    from datetime import timezone
+
+    UTC = timezone.utc
 import json
 import os
 from pathlib import Path

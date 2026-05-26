@@ -39,6 +39,20 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install --upgrade pip pyinstaller -r requirements.txt
 
+      - name: Install SQLCipher wheel and verify
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install sqlcipher3-binary || python -m pip install sqlcipher3
+          python - <<'PY'
+import importlib, sys
+try:
+    import sqlcipher3
+except Exception as e:
+    print('SQLCipher import failed:', e)
+    sys.exit(2)
+print('SQLCipher import OK')
+PY
+
       - name: Install Electron dependencies
         run: npm install
 
@@ -47,6 +61,9 @@ jobs:
 
       - name: Package desktop app
         run: npm run package
+
+      - name: Packaging check — SQLCipher present
+        run: npm run check:package:sqlcipher
 
       - name: Archive app on macOS/Linux
         if: runner.os != 'Windows'

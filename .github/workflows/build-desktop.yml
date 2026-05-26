@@ -37,6 +37,25 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install --upgrade pip pyinstaller -r requirements.txt
 
+      - name: Install SQLCipher wheel and verify
+        run: |
+          python -m pip install --upgrade pip
+          # Prefer the prebuilt wheel; fall back to source-backed package if wheel not available
+          python -m pip install sqlcipher3-binary || python -m pip install sqlcipher3
+          python - <<'PY'
+import importlib, sys
+try:
+    import sqlcipher3
+except Exception as e:
+    print('SQLCipher import failed:', e)
+    sys.exit(2)
+print('SQLCipher import OK')
+PY
+
+      - name: Migration smoke test
+        run: python -m pytest tests/test_migration.py -v
+
+
       - name: Install Electron dependencies
         run: npm install
 
@@ -45,6 +64,9 @@ jobs:
 
       - name: Package desktop app
         run: npm run package
+
+      - name: Packaging check — SQLCipher present
+        run: npm run check:package:sqlcipher
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v4
