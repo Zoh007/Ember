@@ -1,18 +1,41 @@
 from __future__ import annotations
 
 import json
+import getpass
+import hashlib
+import os
+import platform
 import shutil
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
+try:
+    # Python 3.11+ exposes datetime.UTC
+    from datetime import UTC  # type: ignore
+except Exception:
+    from datetime import timezone
+
+    UTC = timezone.utc
+import subprocess
 from pathlib import Path
 from typing import Any, Iterator
+
+def _get_sqlcipher_module():
+    try:
+        import sqlcipher3 as sqlcipher  # type: ignore
+
+        return sqlcipher
+    except ModuleNotFoundError as exc:  # pragma: no cover - dependency is validated in packaging
+        raise RuntimeError(
+            "SQLCipher support is required. Install the 'sqlcipher3-binary' dependency to open the local database."
+        ) from exc
 
 from .config import database_path
 
 
 SCHEMA_VERSION = 1
+CLIPBOARD_RETENTION_HOURS = 24
 
 
 @dataclass(frozen=True)
@@ -107,11 +130,82 @@ def _parse_timestamp(value: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
-def _connect(path: Path | None = None) -> sqlite3.Connection:
+def _derive_database_key() -> str:
+    components = [platform.node(), platform.machine(), getpass.getuser()]
+    if platform.system() == "Darwin":
+        try:
+            machine_id = subprocess.run(
+                ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stdout
+            if machine_id:
+                components.append(machine_id)
+        except Exception:
+            pass
+    raw = "|".join([*components, "ember-v1"])
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _is_plaintext_sqlite(path: Path) -> bool:
+    try:
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
+            conn.execute("SELECT name FROM sqlite_master LIMIT 1").fetchone()
+    except sqlite3.DatabaseError:
+        return False
+    return True
+
+
+def _migrate_plaintext_database(path: Path) -> None:
+    backup_path = path.with_suffix(f"{path.suffix}.plaintext-backup")
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as plain_conn:
+        plaintext_dump = "\n".join(plain_conn.iterdump())
+
+    if not plaintext_dump.strip():
+        return
+
+    if backup_path.exists():
+        backup_path.unlink()
+    shutil.move(path, backup_path)
+
+    try:
+        encrypted_conn = _connect(path, allow_migration=False)
+        try:
+            encrypted_conn.executescript(plaintext_dump)
+            encrypted_conn.commit()
+        finally:
+            encrypted_conn.close()
+    except Exception:
+        if path.exists():
+            path.unlink()
+        shutil.move(backup_path, path)
+        raise
+    else:
+        backup_path.unlink(missing_ok=True)
+
+
+def _connect(path: Path | None = None, *, allow_migration: bool = True) -> sqlite3.Connection:
     db_path = path or database_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(db_path)
-    connection.row_factory = sqlite3.Row
+    # If the file exists and appears to be a plaintext sqlite DB, migrate it
+    # to an encrypted SQLCipher database (when allowed). This ensures that
+    # code opening the database with a SQLCipher key does not see a
+    # plaintext file and raise "file is not a database".
+    if allow_migration and db_path.exists() and _is_plaintext_sqlite(db_path):
+        _migrate_plaintext_database(db_path)
+
+    # Open the database using SQLCipher (imported lazily)
+    sqlcipher = _get_sqlcipher_module()
+    connection = sqlcipher.connect(str(db_path))
+    connection.execute(f"PRAGMA key = '{_derive_database_key()}'")
+    # sqlcipher3 returns its own DB-API cursor/row objects; provide a
+    # lightweight row factory that maps column names to values so existing
+    # code can access row['colname'] as before.
+    def _row_factory(cursor, row):
+        return {desc[0]: row[idx] for idx, desc in enumerate(cursor.description or [])}
+
+    connection.row_factory = _row_factory
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
@@ -128,89 +222,30 @@ def connection(path: Path | None = None) -> Iterator[sqlite3.Connection]:
 
 def init_db(path: Path | None = None) -> None:
     with connection(path) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS schema_meta (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS activities (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                occurred_at TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                source TEXT NOT NULL,
-                app_name TEXT,
-                title TEXT,
-                content TEXT,
-                url TEXT,
-                external_id TEXT,
-                is_work INTEGER,
-                metadata_json TEXT NOT NULL DEFAULT '{}'
-            )
-            """
-        )
+        schema_statements = [
+            "CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS activities (id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL, kind TEXT NOT NULL, source TEXT NOT NULL, app_name TEXT, title TEXT, content TEXT, url TEXT, external_id TEXT, is_work INTEGER, metadata_json TEXT NOT NULL DEFAULT '{}')",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_activities_external_id ON activities (external_id) WHERE external_id IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS idx_activities_occurred_at ON activities (occurred_at)",
+            "CREATE TABLE IF NOT EXISTS briefings (id INTEGER PRIMARY KEY AUTOINCREMENT, briefing_date TEXT NOT NULL, generated_at TEXT NOT NULL, summary TEXT NOT NULL, model TEXT NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}')",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_briefings_date ON briefings (briefing_date)",
+            "CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, app_name TEXT, title TEXT, started_at TEXT NOT NULL, ended_at TEXT, duration_seconds INTEGER, metadata_json TEXT NOT NULL DEFAULT '{}')",
+            "CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions (started_at)",
+        ]
+
+        for statement in schema_statements:
+            conn.execute(statement)
+
+        # Ensure optional columns exist for older schema compatibility
         _ensure_column(conn, "activities", "external_id", "TEXT")
         _ensure_column(conn, "activities", "is_work", "INTEGER")
-        conn.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_activities_external_id
-            ON activities (external_id)
-            WHERE external_id IS NOT NULL
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_activities_occurred_at
-            ON activities (occurred_at)
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS briefings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                briefing_date TEXT NOT NULL,
-                generated_at TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                model TEXT NOT NULL,
-                metadata_json TEXT NOT NULL DEFAULT '{}'
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_briefings_date
-            ON briefings (briefing_date)
-            """
-        )
+
         conn.execute(
             "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
             ("schema_version", str(SCHEMA_VERSION)),
         )
 
-        # Sessions table for duration tracking
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                app_name TEXT,
-                title TEXT,
-                started_at TEXT NOT NULL,
-                ended_at TEXT,
-                duration_seconds INTEGER,
-                metadata_json TEXT NOT NULL DEFAULT '{}'
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_sessions_started_at
-            ON sessions (started_at)
-            """
-        )
+        cleanup_clipboard_history(conn)
 
 
 def delete_all_data(path: Path | None = None) -> None:
@@ -226,6 +261,15 @@ def delete_all_data(path: Path | None = None) -> None:
 
     data_dir.mkdir(parents=True, exist_ok=True)
     init_db(db_path)
+
+
+def cleanup_clipboard_history(conn: sqlite3.Connection, *, retention_hours: int = CLIPBOARD_RETENTION_HOURS) -> int:
+    cutoff = (utc_now() - timedelta(hours=retention_hours)).astimezone(UTC).isoformat()
+    cursor = conn.execute(
+        "DELETE FROM activities WHERE kind = 'clipboard' AND occurred_at < ?",
+        (cutoff,),
+    )
+    return int(cursor.rowcount or 0)
 
 
 def record_activity(
@@ -324,6 +368,14 @@ def external_id_exists(external_id: str, *, path: Path | None = None) -> bool:
     return row is not None
 
 
+def existing_external_ids(*, path: Path | None = None) -> set[str]:
+    with connection(path) as conn:
+        rows = conn.execute(
+            "SELECT external_id FROM activities WHERE external_id IS NOT NULL",
+        ).fetchall()
+    return {str(row["external_id"]) for row in rows if row.get("external_id")}
+
+
 def save_briefing(
     briefing_date: str,
     summary: str,
@@ -358,8 +410,25 @@ def save_briefing(
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, declaration: str) -> None:
-    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
-    if column not in columns:
+    # Basic validation of table name to avoid SQL injection into PRAGMA
+    import re
+
+    if not re.match(r"^\w+$", table):
+        raise ValueError("invalid table name")
+
+    cursor = conn.execute(f"PRAGMA table_info({table})")
+    existing = set()
+    for row in cursor.fetchall():
+        # Our row factory maps column names to dict-like rows
+        if isinstance(row, dict):
+            name = row.get("name")
+        else:
+            # fallback to tuple-based rows
+            name = row[1] if len(row) > 1 else None
+        if name:
+            existing.add(name)
+
+    if column not in existing:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
 

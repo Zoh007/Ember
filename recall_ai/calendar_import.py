@@ -1,20 +1,30 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
+try:
+    from datetime import UTC  # type: ignore
+except Exception:
+    from datetime import timezone
+
+    UTC = timezone.utc
 from pathlib import Path
 from typing import Iterable
 
-from .storage import ActivityInput, RecallStore
+from .storage import ActivityInput, RecallStore, existing_external_ids
 
 
 def import_ics(path: str | Path, store: RecallStore) -> int:
     """Import local ICS events into Recall's activity timeline."""
+    store.initialize()
     text = Path(path).expanduser().read_text(encoding="utf-8")
+    existing_ids = existing_external_ids(path=store.db_path)
     count = 0
     for event in _parse_ics_events(text):
         event_key = event.get("UID") or f"{event.get('DTSTART')}:{event.get('SUMMARY')}"
         external_id = f"ics:{event_key}"
-        before_exists = store.external_id_exists(external_id)
+        is_new = external_id not in existing_ids
+        if not is_new:
+            continue
         store.record_activity(
             ActivityInput(
                 kind="calendar",
@@ -31,8 +41,7 @@ def import_ics(path: str | Path, store: RecallStore) -> int:
                 external_id=external_id,
             ),
         )
-        if not before_exists:
-            count += 1
+        count += 1
     return count
 
 

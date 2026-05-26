@@ -11,6 +11,7 @@ app.whenReady().then(() => {
   }
 });
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -35,7 +36,7 @@ let calendarTimer = null;
 let screenTimer = null;
 let appMonitorTimer = null;
 let appMonitor = null;
-let lastClipboardText = '';
+let lastClipboardFingerprint = '';
 let testResultWindow = null;
 let liveJsonWindow = null;
 let liveJsonTimer = null;
@@ -475,12 +476,22 @@ function classifyWindowKind(windowInfo) {
 
 async function captureClipboardActivity() {
   try {
-    const text = clipboard.readText();
-    if (!text || text === lastClipboardText) {
+    const text = normalizeClipboardText(clipboard.readText());
+    if (!text) {
       return;
     }
 
-    lastClipboardText = text;
+    const fingerprint = clipboardFingerprint(text);
+    if (fingerprint === lastClipboardFingerprint) {
+      return;
+    }
+
+    if (!shouldCaptureClipboardText(text)) {
+      lastClipboardFingerprint = fingerprint;
+      return;
+    }
+
+    lastClipboardFingerprint = fingerprint;
     await runRecall(['capture', 'clipboard'], {
       source: 'clipboard',
       title: 'Clipboard update',
@@ -492,6 +503,28 @@ async function captureClipboardActivity() {
   } catch (error) {
     console.error('Recall clipboard capture failed:', error.message);
   }
+}
+
+function normalizeClipboardText(text) {
+  return String(text || '').replace(/\r\n/g, '\n').trim();
+}
+
+function clipboardFingerprint(text) {
+  return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+function shouldCaptureClipboardText(text) {
+  if (text.length > 500) {
+    return false;
+  }
+
+  const sensitivePatterns = [
+    /\b(password|passcode|passwd|secret|token|bearer|authorization|api[-_ ]?key|client[-_ ]?secret|private[-_ ]?key|access[-_ ]?token)\b/i,
+    /\b(sk-[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|gh[pous]_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z\-_]{20,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16})\b/,
+    /-----BEGIN [A-Z ]+-----/,
+  ];
+
+  return !sensitivePatterns.some((pattern) => pattern.test(text));
 }
 
 async function captureCalendarActivity() {
