@@ -1,2 +1,5 @@
 openai
-sqlcipher3
+# Prefer prebuilt SQLCipher wheel for CI and packaging; fallback to source-backed package
+sqlcipher3-binary>=0.4.0; platform_system == "Linux"
+sqlcipher3>=0.5.0; platform_system == "Darwin"
+sqlcipher3>=0.5.0; platform_system == "Windows"

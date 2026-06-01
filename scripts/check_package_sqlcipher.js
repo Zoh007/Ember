@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 function findDistPython(root) {
   const d = path.join(root, 'dist-python');
@@ -17,15 +18,50 @@ function main() {
     process.exit(2);
   }
 
-  // Look for known sqlcipher wheel or binary names in dist
-  const names = fs.readdirSync(dist);
-  const found = names.some((n) => /sqlcipher/i.test(n) || /libsqlcipher|sqlcipher3/.test(n));
-  if (!found) {
-    console.error('SQLCipher artifacts not found in', dist);
+  const executableName = process.platform === 'win32' ? 'recall-ai.exe' : 'recall-ai';
+  const executablePath = path.join(dist, executableName);
+
+  if (!fs.existsSync(executablePath)) {
+    console.error('Packaged executable not found at', executablePath);
     process.exit(1);
   }
 
-  console.log('Found SQLCipher artifacts in', dist);
+  const result = spawnSync(executablePath, ['check-sqlcipher'], {
+    cwd: root,
+    encoding: 'utf8',
+    shell: false,
+  });
+
+  if (result.error) {
+    console.error('Failed to run packaged SQLCipher check:', result.error.message);
+    process.exit(1);
+  }
+
+  if (result.stdout) {
+    process.stdout.write(result.stdout);
+  }
+  if (result.stderr) {
+    process.stderr.write(result.stderr);
+  }
+
+  if (result.status !== 0) {
+    process.exit(result.status || 1);
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse((result.stdout || '').trim() || '{}');
+  } catch (error) {
+    console.error('Packaged SQLCipher check did not return valid JSON.');
+    process.exit(1);
+  }
+
+  if (!payload.sqlcipher_imported || !payload.memory_database_created) {
+    console.error('Packaged SQLCipher check failed:', JSON.stringify(payload));
+    process.exit(1);
+  }
+
+  console.log('Packaged SQLCipher check passed:', JSON.stringify(payload));
   process.exit(0);
 }
 

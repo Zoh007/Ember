@@ -97,7 +97,7 @@ class BriefingTests(unittest.TestCase):
                 kind="window",
                 source="active-window",
                 app_name="Code",
-                title="Recall v0.1",
+                title="Ember v0.1",
                 occurred_at=datetime(2026, 5, 5, 10, 0, tzinfo=timezone.utc),
             )
             store.record_activity(
@@ -110,7 +110,7 @@ class BriefingTests(unittest.TestCase):
 
             briefing = generate_daily_briefing(store, date(2026, 5, 5))
 
-        self.assertIn("Recall v0.1", briefing)
+        self.assertIn("Ember v0.1", briefing)
         self.assertNotIn("Older unrelated work", briefing)
 
     def test_import_ics_records_calendar_events_once(self) -> None:
@@ -122,7 +122,7 @@ class BriefingTests(unittest.TestCase):
                 "DTSTART:20260505T160000Z",
                 "DTEND:20260505T163000Z",
                 "SUMMARY:Founder sync",
-                "DESCRIPTION:Decision: keep all Recall data local",
+                "DESCRIPTION:Decision: keep all Ember data local",
                 "END:VEVENT",
                 "END:VCALENDAR",
             ],

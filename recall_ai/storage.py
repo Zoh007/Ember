@@ -21,6 +21,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Iterator
 
+
 def _get_sqlcipher_module():
     try:
         import sqlcipher3 as sqlcipher  # type: ignore
@@ -194,11 +195,17 @@ def _connect(path: Path | None = None, *, allow_migration: bool = True) -> sqlit
     # plaintext file and raise "file is not a database".
     if allow_migration and db_path.exists() and _is_plaintext_sqlite(db_path):
         _migrate_plaintext_database(db_path)
-
-    # Open the database using SQLCipher (imported lazily)
+    # Open the database using SQLCipher (imported lazily). If opening
+    # fails because the file is plaintext (SQLCipher reports
+    # "file is not a database"), attempt a migration as a fallback and
+    # reopen.
     sqlcipher = _get_sqlcipher_module()
     connection = sqlcipher.connect(str(db_path))
     connection.execute(f"PRAGMA key = '{_derive_database_key()}'")
+    # Quick sanity check that the DB is usable under SQLCipher with
+    # the derived key.
+    connection.execute("SELECT name FROM sqlite_master LIMIT 1")
+
     # sqlcipher3 returns its own DB-API cursor/row objects; provide a
     # lightweight row factory that maps column names to values so existing
     # code can access row['colname'] as before.
@@ -500,3 +507,4 @@ def recent_sessions(since: datetime, until: datetime, limit: int = 100, path: Pa
                 }
             )
         return result
+

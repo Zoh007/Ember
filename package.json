@@ -21,7 +21,7 @@
     "sqlite",
     "ai"
   ],
-  "author": "Recall <hello@example.com>",
+  "author": "Ember <hello@example.com>",
   "license": "UNLICENSED",
   "private": true,
   "dependencies": {
@@ -34,8 +34,8 @@
     "electron-rebuild": "^2.3.5"
   },
   "build": {
-    "appId": "com.recall.desktop",
-    "productName": "Recall",
+    "appId": "com.ember.desktop",
+    "productName": "Ember",
     "asar": false,
     "files": [
       "app/electron/**/*",
@@ -66,7 +66,7 @@
     },
     "linux": {
       "category": "Utility",
-      "maintainer": "Recall <hello@example.com>",
+      "maintainer": "Ember <hello@example.com>",
       "target": [
         "AppImage",
         "deb"

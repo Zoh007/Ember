@@ -36,6 +36,8 @@ def main(argv: list[str] | None = None) -> int:
     briefing_parser = subparsers.add_parser("briefing", help="Generate a morning briefing")
     briefing_parser.add_argument("--date", dest="target_date", help="Briefing date in YYYY-MM-DD format")
 
+    subparsers.add_parser("check-sqlcipher", help="Verify SQLCipher can be imported and used in memory")
+
     subparsers.add_parser("delete-all", help="Delete all local Recall data and recreate an empty database")
     # Migration command: migrate a plaintext SQLite DB into SQLCipher-encrypted DB (makes a backup)
     migrate_parser = subparsers.add_parser(
@@ -43,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Migrate an existing plaintext SQLite DB to the encrypted SQLCipher DB (makes a backup)",
     )
     migrate_parser.add_argument("--yes", action="store_true", help="Skip interactive confirmation")
+    # Allow passing an explicit DB path after the subcommand for testability
+    migrate_parser.add_argument("--db", dest="sub_db", help="Path to the database to migrate (optional)")
 
     screen_parser = subparsers.add_parser("capture-screen", help="Summarize and capture a local screenshot")
     screen_parser.add_argument("image_path", help="Path to the screenshot image")
@@ -60,7 +64,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "migrate-db":
         # Safe migration path: creates a timestamped backup, attempts migration, and verifies it.
-        db_path = store.db_path
+        # Prefer subparser-provided path (allows `migrate-db --db <path>` usage)
+        db_path = Path(args.sub_db) if getattr(args, "sub_db", None) else store.db_path
         # Confirm
         if not args.yes:
             print(f"This will BACK UP and migrate the database at: {db_path}")
@@ -87,7 +92,8 @@ def main(argv: list[str] | None = None) -> int:
             # _migrate_plaintext_database expects the original path; it will move the backup back on failure
             from .storage import _migrate_plaintext_database
 
-            _migrate_plaintext_database(db_path)
+            # We moved the existing DB to `backup` above; migrate from that file
+            _migrate_plaintext_database(backup)
         except Exception as exc:
             print("Migration failed:", exc)
             # restore backup if it exists
@@ -141,6 +147,10 @@ def main(argv: list[str] | None = None) -> int:
         store.initialize()
         target_date = _parse_date(args.target_date) if args.target_date else None
         print(generate_daily_briefing(store, target_date))
+        return 0
+
+    if args.command == "check-sqlcipher":
+        print(json.dumps(_check_sqlcipher()))
         return 0
 
     if args.command == "delete-all":
@@ -212,6 +222,32 @@ def _read_json_stdin() -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Capture payload must be a JSON object")
     return value
+
+
+def _check_sqlcipher() -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "sqlcipher_imported": False,
+        "memory_database_created": False,
+        "error": None,
+    }
+
+    try:
+        import sqlcipher3
+
+        result["sqlcipher_imported"] = True
+        connection = sqlcipher3.connect(":memory:")
+        try:
+            connection.execute("PRAGMA key = 'test-key'")
+            connection.execute("CREATE TABLE IF NOT EXISTS probe(id INTEGER PRIMARY KEY)")
+            connection.execute("INSERT INTO probe DEFAULT VALUES")
+            connection.commit()
+            result["memory_database_created"] = True
+        finally:
+            connection.close()
+    except Exception as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
+
+    return result
 
 
 _SENSITIVE_CLIPBOARD_PATTERNS = [

@@ -1,4 +1,4 @@
-"""Configuration helpers for Recall's local runtime."""
+"""Configuration helpers for Ember's local runtime."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def data_dir() -> Path:
-    """Return the directory where Recall stores local private data."""
+    """Return the directory where Ember stores local private data."""
     configured = os.environ.get("RECALL_DATA_DIR")
     if configured:
         return Path(configured).expanduser()
@@ -21,7 +21,7 @@ def data_dir() -> Path:
     else:
         root = Path.home() / ".local" / "share"
 
-    return root / "Recall"
+    return root / "Ember"
 
 
 def database_path() -> Path:

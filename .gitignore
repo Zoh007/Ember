@@ -8,9 +8,11 @@ build/
 __pycache__/
 .pytest_cache/
 .venv/
+.venv3.12/
+.packvenv/
 *.sqlite
 *.sqlite3
-recall-data/
+ember-data/
 ember_spec.md
 tests/
 .env

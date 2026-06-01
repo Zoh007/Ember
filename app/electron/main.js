@@ -18,7 +18,7 @@ const os = require('os');
 const { extractScreenText } = require('./ocr');
 const { AppMonitor } = require('./app-monitor');
 
-const APP_NAME = 'Recall';
+const APP_NAME = 'Ember';
 const CAPTURE_INTERVAL_MS = Number(process.env.RECALL_CAPTURE_INTERVAL_MS || 30_000);
 const CLIPBOARD_INTERVAL_MS = Number(process.env.RECALL_CLIPBOARD_INTERVAL_MS || 5_000);
 const CALENDAR_INTERVAL_MS = Number(process.env.RECALL_CALENDAR_INTERVAL_MS || 15 * 60_000);
@@ -28,6 +28,28 @@ const SCREEN_CAPTURE_ENABLED = process.env.RECALL_SCREEN_CAPTURE !== '0';
 const PYTHON_BIN = process.env.RECALL_PYTHON || 'python3';
 const TRAY_ICON_PNG =
   'iVBORw0KGgoAAAANSUhEUgAAABIAAAASCAYAAABWzo5XAAAAOElEQVR42mNgGErgPw5MsQEkGfifREy0QaTKk+UanIahS+LTOGoQFZIAVaKfqgmSalmEqpl2YAEAlkOTbRqLSw4AAAAASUVORK5CYII=';
+
+function defaultUserDataDir() {
+  if (process.env.RECALL_DATA_DIR) {
+    return path.resolve(process.env.RECALL_DATA_DIR);
+  }
+
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support', 'Ember');
+  }
+
+  if (process.platform === 'win32') {
+    return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Ember');
+  }
+
+  if (process.env.XDG_DATA_HOME) {
+    return path.join(process.env.XDG_DATA_HOME, 'Ember');
+  }
+
+  return path.join(os.homedir(), '.local', 'share', 'Ember');
+}
+
+app.setPath('userData', defaultUserDataDir());
 
 let tray = null;
 let captureTimer = null;
@@ -251,7 +273,7 @@ function projectRoot() {
 }
 
 function recallDataDir() {
-  return path.join(app.getPath('userData'), 'recall');
+  return path.join(app.getPath('userData'), 'Ember');
 }
 
 function latestBriefingPath() {
@@ -260,6 +282,10 @@ function latestBriefingPath() {
 
 function settingsPath() {
   return path.join(recallDataDir(), 'settings.json');
+}
+
+function openAiApiKeyPath() {
+  return path.join(recallDataDir(), 'openai-api-key.dat');
 }
 
 function defaultSettings() {
@@ -274,7 +300,14 @@ function defaultSettings() {
 
 function persistSettings(settings) {
   fs.mkdirSync(recallDataDir(), { recursive: true });
-  fs.writeFileSync(settingsPath(), JSON.stringify(settings, null, 2), 'utf8');
+  fs.writeFileSync(settingsPath(), JSON.stringify(stripSecretSettings(settings), null, 2), 'utf8');
+}
+
+function stripSecretSettings(settings) {
+  const sanitized = { ...settings };
+  delete sanitized.openai_api_key;
+  delete sanitized.openai_api_key_encrypted;
+  return sanitized;
 }
 
 function loadSettings() {
@@ -282,40 +315,47 @@ function loadSettings() {
 
   try {
     const settings = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
-    let changed = false;
+    const sanitized = stripSecretSettings(settings);
 
-    if (settings.openai_api_key && safeStorage.isEncryptionAvailable()) {
-      settings.openai_api_key_encrypted = safeStorage.encryptString(String(settings.openai_api_key)).toString('base64');
-      delete settings.openai_api_key;
-      changed = true;
+    if (JSON.stringify(sanitized) !== JSON.stringify(settings)) {
+      persistSettings(sanitized);
     }
 
-    if (changed) {
-      persistSettings(settings);
-    }
-
-    return settings;
+    return sanitized;
   } catch (error) {
-    console.error('Recall settings load failed:', error.message);
+    console.error('Ember settings load failed:', error.message);
     return defaultSettings();
   }
 }
 
-function loadOpenAiApiKey(settings) {
+function persistOpenAiApiKey(apiKey) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('safeStorage encryption is not available on this system');
+  }
+
+  fs.mkdirSync(recallDataDir(), { recursive: true });
+  fs.writeFileSync(
+    openAiApiKeyPath(),
+    safeStorage.encryptString(String(apiKey)).toString('base64'),
+    'utf8',
+  );
+}
+
+function loadOpenAiApiKey() {
   if (process.env.OPENAI_API_KEY) {
     return process.env.OPENAI_API_KEY;
   }
 
-  if (settings.openai_api_key_encrypted && safeStorage.isEncryptionAvailable()) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return '';
+  }
+
+  if (fs.existsSync(openAiApiKeyPath())) {
     try {
-      return safeStorage.decryptString(Buffer.from(settings.openai_api_key_encrypted, 'base64'));
+      return safeStorage.decryptString(Buffer.from(fs.readFileSync(openAiApiKeyPath(), 'utf8'), 'base64'));
     } catch (error) {
       console.error('Failed to decrypt stored OpenAI API key:', error.message);
     }
-  }
-
-  if (settings.openai_api_key) {
-    return settings.openai_api_key;
   }
 
   return '';
@@ -342,6 +382,36 @@ function ensureSettingsFile() {
   fs.mkdirSync(recallDataDir(), { recursive: true });
   if (!fs.existsSync(settingsPath())) {
     persistSettings(defaultSettings());
+    return;
+  }
+
+  try {
+    const settings = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+    let migrated = false;
+
+    if (typeof settings.openai_api_key === 'string' && settings.openai_api_key.trim()) {
+      try {
+        persistOpenAiApiKey(settings.openai_api_key);
+        migrated = true;
+      } catch (error) {
+        console.error('Failed to migrate plaintext OpenAI API key:', error.message);
+      }
+    }
+
+    if (typeof settings.openai_api_key_encrypted === 'string' && settings.openai_api_key_encrypted.trim()) {
+      try {
+        persistOpenAiApiKey(safeStorage.decryptString(Buffer.from(settings.openai_api_key_encrypted, 'base64')));
+        migrated = true;
+      } catch (error) {
+        console.error('Failed to migrate encrypted OpenAI API key:', error.message);
+      }
+    }
+
+    if (migrated) {
+      persistSettings(settings);
+    }
+  } catch (error) {
+    console.error('Failed to normalize Ember settings:', error.message);
   }
 }
 
@@ -354,7 +424,7 @@ function recallEnvironment() {
 
   try {
     const settings = loadSettings();
-    const openAiApiKey = loadOpenAiApiKey(settings);
+    const openAiApiKey = loadOpenAiApiKey();
     if (!env.OPENAI_API_KEY && openAiApiKey) {
       env.OPENAI_API_KEY = openAiApiKey;
     }
@@ -368,7 +438,7 @@ function recallEnvironment() {
       env.RECALL_OLLAMA_MODEL = settings.ollama_model;
     }
   } catch (error) {
-    console.error('Recall settings load failed:', error.message);
+    console.error('Ember settings load failed:', error.message);
   }
 
   return env;
@@ -376,9 +446,9 @@ function recallEnvironment() {
 
 function runRecall(args, payload = null) {
   return new Promise((resolve, reject) => {
-    const recallExecutable = bundledRecallExecutable();
-    const command = recallExecutable || PYTHON_BIN;
-    const commandArgs = recallExecutable ? args : ['-m', 'recall_ai.cli', ...args];
+    const recallExecutable = process.env.RECALL_PYTHON ? null : bundledRecallExecutable();
+    const command = process.env.RECALL_PYTHON || recallExecutable || PYTHON_BIN;
+    const commandArgs = process.env.RECALL_PYTHON || !recallExecutable ? ['-m', 'recall_ai.cli', ...args] : args;
     const child = spawn(command, commandArgs, {
       cwd: projectRoot(),
       env: recallEnvironment(),
@@ -501,7 +571,7 @@ async function captureClipboardActivity() {
       },
     });
   } catch (error) {
-    console.error('Recall clipboard capture failed:', error.message);
+    console.error('Ember clipboard capture failed:', error.message);
   }
 }
 
@@ -536,7 +606,7 @@ async function captureCalendarActivity() {
   try {
     await runRecall(['import-calendar', calendarPath]);
   } catch (error) {
-    console.error('Recall calendar ingest failed:', error.message);
+    console.error('Ember calendar ingest failed:', error.message);
   }
 }
 
@@ -565,16 +635,16 @@ async function captureScreenActivity({ notify = false } = {}) {
     });
     if (notify) {
       new Notification({
-        title: 'Recall captured your screen',
+        title: 'Ember captured your screen',
         body: summary ? summary.slice(0, 180) : 'Saved a local screenshot for the next briefing.',
       }).show();
     }
   } catch (error) {
-    console.error('Recall screen capture failed:', error.message);
+    console.error('Ember screen capture failed:', error.message);
     if (notify) {
       new Notification({
-        title: 'Recall screen capture failed',
-        body: `${error.message}. On macOS, enable Screen Recording for Recall in Privacy & Security.`,
+        title: 'Ember screen capture failed',
+        body: `${error.message}. On macOS, enable Screen Recording for Ember in Privacy & Security.`,
       }).show();
     }
   }
@@ -592,11 +662,11 @@ async function generateBriefing() {
     await shell.openPath(latestBriefingPath());
 
     new Notification({
-      title: 'Recall morning briefing',
+      title: 'Ember morning briefing',
       body: briefing.length > 180 ? `${briefing.slice(0, 177)}...` : briefing,
     }).show();
   } catch (error) {
-    console.error('Recall briefing failed:', error.message);
+    console.error('Ember briefing failed:', error.message);
   }
 }
 
@@ -604,7 +674,7 @@ async function openLatestBriefing() {
   const briefingPath = latestBriefingPath();
   if (!fs.existsSync(briefingPath)) {
     new Notification({
-      title: 'Recall',
+      title: APP_NAME,
       body: 'No readable briefing exists yet. Choose Generate and open briefing first.',
     }).show();
     return;
@@ -624,8 +694,8 @@ async function deleteAllData() {
     defaultId: 1,
     cancelId: 1,
     noLink: true,
-    title: 'Delete all local Recall data',
-    message: 'This will permanently delete all local Recall data on this machine.',
+    title: 'Delete all local Ember data',
+    message: 'This will permanently delete all local Ember data on this machine.',
     detail: 'Briefings, activities, screenshots, debug logs, and the local database will be removed. The app will recreate an empty database afterward.',
   });
 
@@ -645,7 +715,7 @@ async function deleteAllData() {
     if (fs.existsSync(debugDir)) {
       fs.rmSync(debugDir, { recursive: true, force: true });
     }
-    new Notification({ title: APP_NAME, body: 'All local Recall data was deleted.' }).show();
+    new Notification({ title: APP_NAME, body: 'All local Ember data was deleted.' }).show();
   } catch (error) {
     new Notification({ title: APP_NAME, body: `Delete failed: ${error.message}` }).show();
   }
@@ -817,7 +887,7 @@ function createTray() {
       },
       { type: 'separator' },
       {
-        label: 'Quit Recall',
+        label: 'Quit Ember',
         click: () => app.quit(),
       },
     ]),
@@ -851,11 +921,16 @@ async function startBackgroundCapture() {
     }
   });
   if (process.platform === 'darwin') {
-    appMonitor.startEventWatcher();
-    console.log('[Recall] App monitor started (event watcher)');
+    const watcher = appMonitor.startEventWatcher();
+      if (watcher) {
+      console.log('[Ember] App monitor started (event watcher)');
+    } else {
+      appMonitorTimer = appMonitor.startMonitoring(APP_MONITOR_INTERVAL_MS);
+      console.log(`[Ember] App monitor started (polling fallback: ${APP_MONITOR_INTERVAL_MS}ms)`);
+    }
   } else {
     appMonitorTimer = appMonitor.startMonitoring(APP_MONITOR_INTERVAL_MS);
-    console.log(`[Recall] App monitor started (interval: ${APP_MONITOR_INTERVAL_MS}ms)`);
+    console.log(`[Ember] App monitor started (interval: ${APP_MONITOR_INTERVAL_MS}ms)`);
   }
 }
 

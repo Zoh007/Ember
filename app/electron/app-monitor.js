@@ -1,4 +1,4 @@
-const { spawn, execFile } = require('child_process');
+const { spawn, execFile, spawnSync } = require('child_process');
 const EventEmitter = require('events');
 const path = require('path');
 const fs = require('fs');
@@ -528,6 +528,14 @@ end try`;
     // Use RECALL_PYTHON env var if set; otherwise use the bundled or system python3.
     // This ensures the watcher uses the same Python environment (e.g., with PyObjC installed).
     const pythonPath = process.env.RECALL_PYTHON || this.recallExecutable || 'python3';
+    const foundationCheck = spawnSync(pythonPath, ['-c', 'import Foundation'], {
+      cwd: this.projectRoot,
+      stdio: 'pipe',
+    });
+    if (foundationCheck.status !== 0) {
+      console.warn('[AppMonitor] PyObjC/Foundation not available; falling back to polling');
+      return null;
+    }
     const child = spawn(pythonPath, [scriptPath], { cwd: this.projectRoot });
     this.eventWatcher = child;
 

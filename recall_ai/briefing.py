@@ -148,7 +148,7 @@ def fallback_briefing(activities: Iterable[Activity], target_date: date) -> str:
     )
 
     lines = [
-        f"Recall briefing for {target_date.isoformat()}",
+        f"Ember briefing for {target_date.isoformat()}",
         "",
         "Where you left off:",
         f"- Last captured context: {_describe_activity(left_off) if left_off else 'No substantive activity captured.'}",
@@ -336,9 +336,9 @@ def _format_markers(markers: list[str], empty: str) -> list[str]:
 def _empty_briefing(target_date: date) -> str:
     return "\n".join(
         [
-            f"Recall briefing for {target_date.isoformat()}",
+            f"Ember briefing for {target_date.isoformat()}",
             "",
-            "No activity was captured for this day yet. Start Recall in the background to build a local work memory.",
+            "No activity was captured for this day yet. Start Ember in the background to build a local work memory.",
         ],
     )
 

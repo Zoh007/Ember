@@ -53,7 +53,7 @@ async function loadActivities() {
 
 async function deleteAllData() {
   const confirmed = confirm(
-    'This will permanently delete all local Recall data, including the database, briefings, screenshots, and debug logs. Continue?',
+    'This will permanently delete all local Ember data, including the database, briefings, screenshots, and debug logs. Continue?',
   );
   if (!confirmed) {
     return;
@@ -65,7 +65,7 @@ async function deleteAllData() {
     currentFilter = null;
     loadBriefing();
     renderActivities();
-    alert('All local Recall data was deleted.');
+    alert('All local Ember data was deleted.');
   } catch (error) {
     alert(`Delete failed: ${error.message}`);
   }
