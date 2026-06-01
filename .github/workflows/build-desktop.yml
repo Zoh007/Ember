@@ -47,6 +47,51 @@ jobs:
           python -m pip install sqlcipher3-binary || python -m pip install sqlcipher3
           python -c "import importlib; importlib.import_module('sqlcipher3'); print('SQLCipher import OK')"
 
+      - name: Create migration test (CI-only)
+        run: |
+          python - <<'PY'
+          import pathlib
+          content = r'''
+import os
+import sqlite3
+import subprocess
+import sys
+import tempfile
+
+
+def test_migration_creates_encrypted_db():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = os.path.join(tmp, "recall.sqlite3")
+        conn = sqlite3.connect(db)
+        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+        conn.execute("INSERT INTO t (id) VALUES (1)")
+        conn.commit()
+        conn.close()
+
+        # Run the migration CLI against the plaintext DB
+        res = subprocess.run([sys.executable, "-m", "recall_ai.cli", "migrate-db", "--yes", "--db", db], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        assert res.returncode == 0, f"Migration failed: {res.stdout}\n{res.stderr}"
+
+        # After migration, opening with the builtin sqlite3 should fail (file is encrypted)
+        script = f"""
+import sqlite3, sys
+try:
+    with sqlite3.connect('file:{db}?mode=ro', uri=True) as c:
+        c.execute('SELECT name FROM sqlite_master LIMIT 1').fetchone()
+except sqlite3.DatabaseError:
+    sys.exit(0)
+sys.exit(1)
+"""
+        res2 = subprocess.run([sys.executable, "-c", script], check=False)
+        assert res2.returncode == 0, "DB appears plaintext after migration"
+
+'''
+          p = pathlib.Path('tests')
+          p.mkdir(parents=True, exist_ok=True)
+          p.joinpath('test_migration.py').write_text(content)
+          print('Wrote tests/test_migration.py')
+          PY
+
       - name: Migration smoke test
         run: python -m pytest tests/test_migration.py -v
 
