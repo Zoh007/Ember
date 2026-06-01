@@ -166,9 +166,36 @@ def _migrate_plaintext_database(path: Path) -> None:
     if not plaintext_dump.strip():
         return
 
+    def _safe_unlink(p: Path) -> None:
+        try:
+            p.unlink()
+        except Exception:
+            try:
+                p.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    def _safe_move(src: Path, dst: Path, retries: int = 5) -> None:
+        # On Windows, files can be transiently locked by other processes — retry a few times
+        import time
+
+        for attempt in range(retries):
+            try:
+                shutil.move(src, dst)
+                return
+            except PermissionError:
+                time.sleep(0.1 * (attempt + 1))
+        # Fallback: copy then try to remove original
+        shutil.copy2(src, dst)
+        try:
+            src.unlink()
+        except Exception:
+            # best-effort; if we cannot unlink, leave original in place
+            pass
+
     if backup_path.exists():
-        backup_path.unlink()
-    shutil.move(path, backup_path)
+        _safe_unlink(backup_path)
+    _safe_move(path, backup_path)
 
     try:
         encrypted_conn = _connect(path, allow_migration=False)
@@ -178,12 +205,25 @@ def _migrate_plaintext_database(path: Path) -> None:
         finally:
             encrypted_conn.close()
     except Exception:
-        if path.exists():
-            path.unlink()
-        shutil.move(backup_path, path)
-        raise
+        # Attempt to restore the original backup; try replace, then fallback to copy
+        try:
+            if path.exists():
+                try:
+                    path.unlink()
+                except Exception:
+                    pass
+            # try atomic replace first
+            try:
+                backup_path.replace(path)
+            except Exception:
+                try:
+                    shutil.copy2(backup_path, path)
+                except Exception:
+                    pass
+        finally:
+            raise
     else:
-        backup_path.unlink(missing_ok=True)
+        _safe_unlink(backup_path)
 
 
 def _connect(path: Path | None = None, *, allow_migration: bool = True) -> sqlite3.Connection:
