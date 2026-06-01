@@ -43,14 +43,14 @@ jobs:
           # Prefer the prebuilt wheel; fall back to source-backed package if wheel not available
           python -m pip install sqlcipher3-binary || python -m pip install sqlcipher3
           python - <<'PY'
-import importlib, sys
-try:
-    import sqlcipher3
-except Exception as e:
-    print('SQLCipher import failed:', e)
-    sys.exit(2)
-print('SQLCipher import OK')
-PY
+          import importlib, sys
+          try:
+            import sqlcipher3
+          except Exception as e:
+            print('SQLCipher import failed:', e)
+            sys.exit(2)
+          print('SQLCipher import OK')
+          PY
 
       - name: Migration smoke test
         run: python -m pytest tests/test_migration.py -v
