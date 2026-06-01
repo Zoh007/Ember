@@ -25,6 +25,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install pytest
+        run: python -m pip install pytest
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -36,32 +39,13 @@ jobs:
 
       - name: Verify SQLCipher import
         run: |
-          python - <<'PY'
-import sys
-try:
-    import sqlcipher3
-except Exception as e:
-    print('SQLCipher import failed:', e)
-    sys.exit(2)
-print('SQLCipher import OK')
-PY
+          python -c "import importlib; importlib.import_module('sqlcipher3'); print('SQLCipher import OK')"
 
       - name: Create a plaintext SQLite DB
         env:
           TEST_DB: ${{ github.workspace }}/test_migrate.sqlite3
         run: |
-          python - <<'PY'
-import sqlite3, os
-path = os.environ['TEST_DB']
-if os.path.exists(path):
-    os.remove(path)
-conn = sqlite3.connect(path)
-conn.execute('CREATE TABLE test_migrate (id INTEGER PRIMARY KEY);')
-conn.execute('INSERT INTO test_migrate (id) VALUES (1);')
-conn.commit()
-conn.close()
-print('Created test DB at', path)
-PY
+          python -c "import os, sqlite3, pathlib; path = os.environ['TEST_DB']; pathlib.Path(path).unlink(missing_ok=True); conn = sqlite3.connect(path); conn.execute('CREATE TABLE test_migrate (id INTEGER PRIMARY KEY);'); conn.execute('INSERT INTO test_migrate (id) VALUES (1);'); conn.commit(); conn.close(); print('Created test DB at', path)"
 
       - name: Run migration (strict)
         env:
