@@ -242,9 +242,9 @@ def _connect(path: Path | None = None, *, allow_migration: bool = True) -> sqlit
     sqlcipher = _get_sqlcipher_module()
     connection = sqlcipher.connect(str(db_path))
     connection.execute(f"PRAGMA key = '{_derive_database_key()}'")
-    # Quick sanity check that the DB is usable under SQLCipher with
-    # the derived key.
-    connection.execute("SELECT name FROM sqlite_master LIMIT 1")
+    # Defer schema probing until the caller actually uses the database.
+    # Windows CI has shown transient failures when probing a just-created
+    # SQLCipher database before any schema exists.
 
     # sqlcipher3 returns its own DB-API cursor/row objects; provide a
     # lightweight row factory that maps column names to values so existing

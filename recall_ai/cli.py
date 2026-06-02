@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "migrate-db":
-        # Safe migration path: creates a timestamped backup, attempts migration, and verifies it.
+        # Safe migration path: the storage helper creates and restores its own backup.
         # Prefer subparser-provided path (allows `migrate-db --db <path>` usage)
         db_path = Path(args.sub_db) if getattr(args, "sub_db", None) else store.db_path
         # Confirm
@@ -74,31 +74,18 @@ def main(argv: list[str] | None = None) -> int:
                 print("Aborted.")
                 return 1
 
-        # Create backup
-        backup = db_path.with_suffix(db_path.suffix + ".bak")
-        if backup.exists():
-            # rotate existing backup
-            backup_rot = db_path.with_suffix(db_path.suffix + ".bak.old")
-            backup.rename(backup_rot)
-        if db_path.exists():
-            db_path.replace(backup)
-            print(f"Backup created: {backup}")
-        else:
+        if not db_path.exists():
             print("No existing DB found to migrate.")
             return 1
 
-        # Attempt migration using the storage helper
+        # Attempt migration using the storage helper. It will make a backup of the
+        # plaintext file and restore it on failure.
         try:
-            # _migrate_plaintext_database expects the original path; it will move the backup back on failure
             from .storage import _migrate_plaintext_database
 
-            # We moved the existing DB to `backup` above; migrate from that file
-            _migrate_plaintext_database(backup)
+            _migrate_plaintext_database(db_path)
         except Exception as exc:
             print("Migration failed:", exc)
-            # restore backup if it exists
-            if backup.exists():
-                backup.replace(db_path)
             return 2
 
         print("Migration complete.")
