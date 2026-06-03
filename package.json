@@ -4,14 +4,16 @@
   "description": "A private desktop memory assistant that captures work context locally and generates daily briefings.",
   "main": "app/electron/main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "env -u ELECTRON_RUN_AS_NODE RECALL_PYTHON=\"${RECALL_PYTHON:-.venv/bin/python}\" electron .",
+    "test": ".venv/bin/python -m unittest discover -s tests",
     "build:python": "node scripts/build-python.js",
     "package": "npm run build:python && electron-builder --dir",
     "package:installer": "npm run build:python && electron-builder --publish=never",
     "release": "npm run build:python && electron-builder --publish=always",
-    "briefing": "python3 -m recall_ai.cli briefing",
-    "init-db": "python3 -m recall_ai.cli init-db",
-    "test": "python -m unittest discover -s tests",
+    "briefing": "${RECALL_PYTHON:-.venv/bin/python} -m recall_ai.cli briefing",
+    "init-db": "${RECALL_PYTHON:-.venv/bin/python} -m recall_ai.cli init-db",
+    "repair-db": "${RECALL_PYTHON:-.venv/bin/python} -m recall_ai.cli repair-db --yes",
+    "setup": "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && npm install",
     "check:package:sqlcipher": "node scripts/check_package_sqlcipher.js"
   },
   "keywords": [

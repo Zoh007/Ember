@@ -4,7 +4,14 @@ const path = require('path');
 
 const root = path.resolve(__dirname, '..');
 const pythonDistDir = path.join(root, 'dist-python');
-const python = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+const venvPython = path.join(
+  root,
+  '.venv',
+  process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
+);
+const python =
+  process.env.PYTHON ||
+  (fs.existsSync(venvPython) ? venvPython : process.platform === 'win32' ? 'python' : 'python3');
 
 function isCommandAvailable(command) {
   const probe = spawnSync(command, ['--version'], {

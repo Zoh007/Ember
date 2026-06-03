@@ -15,7 +15,8 @@ from .storage import ActivityInput, RecallStore, existing_external_ids
 
 def import_ics(path: str | Path, store: RecallStore) -> int:
     """Import local ICS events into Ember's activity timeline."""
-    store.initialize()
+    if not store.db_path.exists() or store.db_path.stat().st_size == 0:
+        store.initialize()
     text = Path(path).expanduser().read_text(encoding="utf-8")
     existing_ids = existing_external_ids(path=store.db_path)
     count = 0

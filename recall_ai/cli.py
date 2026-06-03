@@ -22,6 +22,11 @@ def main(argv: list[str] | None = None) -> int:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("init-db", help="Create or migrate the local database")
+    repair_parser = subparsers.add_parser(
+        "repair-db",
+        help="Back up an unreadable database file and recreate an empty encrypted database",
+    )
+    repair_parser.add_argument("--yes", action="store_true", help="Skip interactive confirmation")
 
     capture_parser = subparsers.add_parser("capture", help="Capture an activity event from stdin JSON")
     capture_parser.add_argument("kind", choices=["window", "clipboard", "calendar", "document", "screen", "app", "app-list", "session"])
@@ -60,6 +65,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "init-db":
         store.initialize()
         print(store.db_path)
+        return 0
+
+    if args.command == "repair-db":
+        db_path = store.db_path
+        if not args.yes:
+            print(f"This will back up and replace the database at: {db_path}")
+            confirm = input("Type 'REPAIR' to continue: ")
+            if confirm.strip() != "REPAIR":
+                print("Aborted.")
+                return 1
+        from .storage import repair_database
+
+        backup_path = repair_database(db_path)
+        if backup_path is None:
+            print("Database repaired (reinitialized).")
+        else:
+            print(f"Database repaired. Backup: {backup_path}")
+        print(db_path)
         return 0
 
     if args.command == "migrate-db":

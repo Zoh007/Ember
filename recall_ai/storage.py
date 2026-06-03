@@ -226,19 +226,77 @@ def _migrate_plaintext_database(path: Path) -> None:
         _safe_unlink(backup_path)
 
 
+def _sqlcipher_database_ready(conn: sqlite3.Connection) -> bool:
+    try:
+        row = conn.execute(
+            "SELECT value FROM schema_meta WHERE key = 'schema_version' LIMIT 1",
+        ).fetchone()
+        if row is not None:
+            return True
+    except Exception:
+        pass
+    try:
+        conn.execute("CREATE TABLE IF NOT EXISTS __ember_probe (id INTEGER PRIMARY KEY)")
+        conn.execute("DROP TABLE IF EXISTS __ember_probe")
+        return True
+    except Exception:
+        return False
+
+
+def _quarantine_database_file(path: Path) -> Path:
+    timestamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
+    backup_path = path.with_name(f"{path.name}.unreadable-{timestamp}")
+    if backup_path.exists():
+        backup_path.unlink()
+    shutil.move(path, backup_path)
+    return backup_path
+
+
+def _prepare_existing_database_file(db_path: Path, *, allow_migration: bool) -> Path | None:
+    if not db_path.exists() or db_path.stat().st_size == 0:
+        return None
+
+    if allow_migration and _is_plaintext_sqlite(db_path):
+        _migrate_plaintext_database(db_path)
+        return None
+
+    sqlcipher = _get_sqlcipher_module()
+    probe = sqlcipher.connect(str(db_path))
+    try:
+        probe.execute(f"PRAGMA key = '{_derive_database_key()}'")
+        if _sqlcipher_database_ready(probe):
+            return None
+    except Exception:
+        pass
+    finally:
+        probe.close()
+
+    return _quarantine_database_file(db_path)
+
+
+def repair_database(path: Path | None = None) -> Path | None:
+    db_path = path or database_path()
+    backup_path = None
+    if db_path.exists() and db_path.stat().st_size > 0:
+        if _is_plaintext_sqlite(db_path):
+            _migrate_plaintext_database(db_path)
+        else:
+            backup_path = _quarantine_database_file(db_path)
+    init_db(db_path)
+    return backup_path
+
+
 def _connect(path: Path | None = None, *, allow_migration: bool = True) -> sqlite3.Connection:
     db_path = path or database_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    # If the file exists and appears to be a plaintext sqlite DB, migrate it
-    # to an encrypted SQLCipher database (when allowed). This ensures that
-    # code opening the database with a SQLCipher key does not see a
-    # plaintext file and raise "file is not a database".
-    if allow_migration and db_path.exists() and _is_plaintext_sqlite(db_path):
-        _migrate_plaintext_database(db_path)
-    # Open the database using SQLCipher (imported lazily). If opening
-    # fails because the file is plaintext (SQLCipher reports
-    # "file is not a database"), attempt a migration as a fallback and
-    # reopen.
+    quarantined = _prepare_existing_database_file(db_path, allow_migration=allow_migration)
+    if quarantined is not None:
+        import sys
+
+        print(
+            f"Warning: moved unreadable database to {quarantined}. A new encrypted database will be created.",
+            file=sys.stderr,
+        )
     sqlcipher = _get_sqlcipher_module()
     connection = sqlcipher.connect(str(db_path))
     connection.execute(f"PRAGMA key = '{_derive_database_key()}'")
@@ -269,6 +327,16 @@ def connection(path: Path | None = None) -> Iterator[sqlite3.Connection]:
 
 def init_db(path: Path | None = None) -> None:
     with connection(path) as conn:
+        try:
+            existing = conn.execute(
+                "SELECT value FROM schema_meta WHERE key = 'schema_version' LIMIT 1",
+            ).fetchone()
+        except Exception:
+            existing = None
+        if existing is not None:
+            cleanup_clipboard_history(conn)
+            return
+
         schema_statements = [
             "CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS activities (id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL, kind TEXT NOT NULL, source TEXT NOT NULL, app_name TEXT, title TEXT, content TEXT, url TEXT, external_id TEXT, is_work INTEGER, metadata_json TEXT NOT NULL DEFAULT '{}')",
